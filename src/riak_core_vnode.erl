@@ -44,6 +44,7 @@
          trigger_delete/1,
          core_status/1,
          handoff_error/3]).
+-export([ping/2]).
 
 -ifdef(TEST).
 
@@ -140,6 +141,8 @@ send_command(Pid, Request) ->
 send_command_after(Time, Request) ->
     gen_fsm:send_event_after(Time, ?VNODE_REQ{request=Request}).
 
+ping(Pid, Timeout) when is_pid(Pid) ->
+    gen_fsm:sync_send_all_state_event(Pid, ping, Timeout).
 
 init([Mod, Index, InitialInactivityTimeout, Forward]) ->
     process_flag(trap_exit, true),
@@ -707,6 +710,8 @@ handle_event(R=?COVERAGE_REQ{}, _StateName, State) ->
     active(R, State).
 
 
+handle_sync_event(ping, _From, StateName, State) ->
+    {reply, ok, StateName, State, State#state.inactivity_timeout};
 handle_sync_event(current_state, _From, StateName, State) ->
     {reply, {StateName, State}, StateName, State};
 handle_sync_event(get_mod_index, _From, StateName,

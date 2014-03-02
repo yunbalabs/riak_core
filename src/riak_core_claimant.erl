@@ -740,7 +740,7 @@ type_claimant(Props) ->
     end.
 
 maybe_bootstrap_root_ensemble(Ring) ->
-    IsEnabled = (whereis(riak_ensemble_sup) =/= undefined),
+    IsEnabled = riak_ensemble_manager:enabled(),
     IsClaimant = (riak_core_ring:claimant(Ring) == node()),
     IsReady = riak_core_ring:ring_ready(Ring),
     case IsEnabled and IsClaimant and IsReady of
@@ -759,9 +759,11 @@ bootstrap_members(Ring) ->
     Name = riak_core_ring:cluster_name(Ring),
     Members = riak_core_ring:all_members(Ring),
     RootMembers = riak_ensemble_manager:get_members(root),
-    Known = riak_ensemble_manager:rget(members, []),
+    Known = riak_ensemble_manager:cluster(),
     Need = Members -- Known,
-    [riak_ensemble_manager:join(node(), Member) || Member <- Need],
+    %% TODO: Rather than dying here, should look into retry like we do with riak_kv_ensembles
+    [ok = riak_ensemble_manager:join(node(), Member) || Member <- Need,
+                                                        Member =/= node()],
 
     RootNodes = [Node || {_, Node} <- RootMembers],
     RootAdd = Members -- RootNodes,
@@ -773,6 +775,7 @@ bootstrap_members(Ring) ->
         [] ->
             ok;
         _ ->
+            %% TODO: If this fails, and ring stablizes, we'll never retry. Fix.
             RootLeader = riak_ensemble_manager:rleader_pid(),
             spawn(fun() ->
                           riak_ensemble_peer:update_members(RootLeader, Changes, 10000)
