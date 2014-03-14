@@ -318,7 +318,18 @@ fake_loop() ->
                                 undefined -> 0;
                                 Val -> Val
                             end,
-                    put(last, _Msg),
+                    Last = erlang:get(last),
+                    case Last of
+                        Num when _Msg /= Num + 1, is_integer(_Msg),
+                                 is_integer(Num) ->
+                            ?debugFmt("jumped from ~p to ~p", [Last, _Msg]);
+                        _ -> ok
+                    end,
+                    case is_integer(_Msg) of
+                        true ->
+                            put(last, _Msg);
+                        _ -> ok
+                    end,
                     put(count, Count+1),
                     fake_loop()
             end
