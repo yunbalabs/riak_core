@@ -311,13 +311,14 @@ fake_loop() ->
                 slow ->
                     fake_loop_slow();
                 {get_count, Pid} ->
-                    Pid ! {count, erlang:get(count)},
+                    Pid ! {count, erlang:get(count), erlang:get(last)},
                     fake_loop();
                 _Msg ->
                     Count = case erlang:get(count) of
                                 undefined -> 0;
                                 Val -> Val
                             end,
+                    put(last, _Msg),
                     put(count, Count+1),
                     fake_loop()
             end
@@ -363,13 +364,14 @@ overload_test_() ->
       fun({VnodePid, ProxyPid}) ->
               {"should not discard in normal operation", timeout, 60,
                fun() ->
-                       [ProxyPid ! hello || _ <- lists:seq(1, 50000)],
+                       [ProxyPid ! N || N <- lists:seq(1, 50000)],
                        %% synchronize on the mailbox
                        Reply = gen:call(ProxyPid, '$vnode_proxy_call', sync, infinity),
                        ?assertEqual({ok, ok}, Reply),
                        VnodePid ! {get_count, self()},
                        receive
-                           {count, Count} ->
+                           {count, Count, Last} ->
+                               ?debugFmt("Last is ~p~n", [Last]),
                                %% 50000 messages + 1 unanswered vnode_proxy_ping
                                ?assertEqual(50001, Count)
                        end
@@ -387,7 +389,7 @@ overload_test_() ->
                        VnodePid ! unblock,
                        VnodePid ! {get_count, self()},
                        receive
-                           {count, Count} ->
+                           {count, Count, _Last} ->
                                %% Threshold + 1 unanswered vnode_proxy_ping
                                ?assertEqual(?DEFAULT_OVERLOAD_THRESHOLD + 1, Count)
                        end
