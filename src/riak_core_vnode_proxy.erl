@@ -303,20 +303,24 @@ get_vnode_pid(State=#state{vnode_pid=Pid}) ->
 
 fake_loop() ->
     receive
-        block ->
-            fake_loop_block();
-        slow ->
-            fake_loop_slow();
-        {get_count, Pid} ->
-            Pid ! {count, erlang:get(count)},
-            fake_loop();
-        _Msg ->
-            Count = case erlang:get(count) of
-                        undefined -> 0;
-                        Val -> Val
-                    end,
-            put(count, Count+1),
-            fake_loop()
+        %% make sure this is not a selective receive
+        Msg ->
+            case Msg of
+                block ->
+                    fake_loop_block();
+                slow ->
+                    fake_loop_slow();
+                {get_count, Pid} ->
+                    Pid ! {count, erlang:get(count)},
+                    fake_loop();
+                _Msg ->
+                    Count = case erlang:get(count) of
+                                undefined -> 0;
+                                Val -> Val
+                            end,
+                    put(count, Count+1),
+                    fake_loop()
+            end
     end.
 
 fake_loop_slow() ->
