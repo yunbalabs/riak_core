@@ -353,6 +353,14 @@ fake_loop_block() ->
             fake_loop()
     end.
 
+poll_until_empty_mailbox(Pid) ->
+    case process_info(Pid, message_queue_len) of
+        {message_queue_len, 0} ->
+            ok;
+        _ ->
+            poll_until_empty_mailbox(Pid)
+    end.
+
 overload_test_() ->
     {timeout, 900, {foreach,
      fun() ->
@@ -376,6 +384,7 @@ overload_test_() ->
               {"should not discard in normal operation", timeout, 60,
                fun() ->
                        [ProxyPid ! N || N <- lists:seq(1, 50000)],
+                       poll_until_empty_mailbox(ProxyPid),
                        %% synchronize on the mailbox
                        Reply = gen:call(ProxyPid, '$vnode_proxy_call', sync, infinity),
                        ?assertEqual({ok, ok}, Reply),
