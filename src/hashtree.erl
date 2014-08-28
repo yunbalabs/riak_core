@@ -124,6 +124,7 @@
          segments/1,
          width/1,
          mem_levels/1]).
+-export([compare2/4]).
 
 -ifdef(TEST).
 -export([local_compare/2]).
@@ -805,6 +806,66 @@ iterate({ok, K, V}, IS=#itr_state{itr=Itr,
             IS
     end.
 
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%% level-by-level exchange (BFS instead of DFS)
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+compare2(Tree, Remote, AccFun, Acc) ->
+    Final = Tree#state.levels + 1,
+    Local = fun(get_bucket, {L, B}) ->
+                    get_bucket(L, B, Tree);
+               (key_hashes, Segment) ->
+                    [{_, KeyHashes2}] = key_hashes(Tree, Segment),
+                    KeyHashes2
+            end,
+    Opts = [],
+    exchange(1, [0], Final, Local, Remote, AccFun, Acc, Opts).
+
+exchange(_Level, [], _Final, _Local, _Remote, _AccFun, Acc, _Opts) ->
+    Acc;
+exchange(Level, Diff, Final, Local, Remote, AccFun, Acc, Opts) ->
+    %% io:format("~p :: ~w~n", [Level, Diff]),
+    if Level =:= Final ->
+            exchange_final(Level, Diff, Local, Remote, AccFun, Acc, Opts);
+       true ->
+            Diff2 = exchange_level(Level, Diff, Local, Remote, Opts),
+            exchange(Level+1, Diff2, Final, Local, Remote, AccFun, Acc, Opts)
+    end.
+
+exchange_level(Level, Buckets, Local, Remote, _Opts) ->
+    Remote(start_exchange_level, {Level, Buckets}),
+    lists:flatmap(fun(Bucket) ->
+                          A = Local(get_bucket, {Level, Bucket}),
+                          B = Remote(get_bucket, {Level, Bucket}),
+                          Delta = riak_ensemble_util:orddict_delta(lists:keysort(1, A),
+                                                                   lists:keysort(1, B)),
+                          %% io:format("level_delta: ~p~n", [Delta]),
+                          Diffs = Delta,
+                          [BK || {BK, _} <- Diffs]
+                  end, Buckets).
+
+exchange_final(_Level, Segments, Local, Remote, AccFun, Acc0, _Opts) ->
+    Remote(start_exchange_segments, Segments),
+    lists:foldl(fun(Segment, Acc) ->
+                        %% io:format("segment: ~p~n", [Segment]),
+                        A = Local(key_hashes, Segment),
+                        B = Remote(key_hashes, Segment),
+                        Delta = riak_ensemble_util:orddict_delta(lists:keysort(1, A),
+                                                                 lists:keysort(1, B)),
+                        %% io:format("segment_delta: ~p~n", [Delta]),
+                        Keys = [begin
+                                    {_Id, Segment, Key} = decode(KBin),
+                                    Type = key_diff_type(Diff),
+                                    {Type, Key}
+                                end || {KBin, Diff} <- Delta],
+                        Keys,
+                        AccFun(Keys, Acc)
+                end, Acc0, Segments).
+    %% Keys = compare_segments(Bucket, Tree, Remote),
+    %% AccFun(Keys, KeyAcc);
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
 -spec compare(integer(), integer(), hashtree(), remote_fun(), acc_fun(X), X) -> X.
 compare(Level, Bucket, Tree, Remote, AccFun, KeyAcc) when Level == Tree#state.levels+1 ->
     Keys = compare_segments(Bucket, Tree, Remote),
@@ -816,6 +877,7 @@ compare(Level, Bucket, Tree, Remote, AccFun, KeyAcc) ->
     Inter = ordsets:intersection(ordsets:from_list(HL1),
                                  ordsets:from_list(HL2)),
     Diff = ordsets:subtract(Union, Inter),
+    %% io:format("Diff: ~p~n", [Diff]),
     KeyAcc3 =
         lists:foldl(fun({Bucket2, _}, KeyAcc2) ->
                             compare(Level+1, Bucket2, Tree, Remote, AccFun, KeyAcc2)
@@ -824,11 +886,13 @@ compare(Level, Bucket, Tree, Remote, AccFun, KeyAcc) ->
 
 -spec compare_segments(integer(), hashtree(), remote_fun()) -> [keydiff()].
 compare_segments(Segment, Tree=#state{id=Id}, Remote) ->
+    %% io:format("segment: ~p~n", [Segment]),
     [{_, KeyHashes1}] = key_hashes(Tree, Segment),
     KeyHashes2 = Remote(key_hashes, Segment),
     HL1 = orddict:from_list(KeyHashes1),
     HL2 = orddict:from_list(KeyHashes2),
     Delta = orddict_delta(HL1, HL2),
+    %% io:format("Diff2: ~p~n", [Delta]),
     Keys = [begin
                 {Id, Segment, Key} = decode(KBin),
                 Type = key_diff_type(Diff),
@@ -1010,6 +1074,10 @@ do_remote(N) ->
     Remote = fun(get_bucket, {L, B}) ->
                      Other ! {get_bucket, self(), L, B},
                      receive {remote, X} -> X end;
+                (start_exchange_level, {_Level, _Buckets}) ->
+                     ok;
+                (start_exchange_segments, _Segments) ->
+                     ok;
                 (key_hashes, Segment) ->
                      Other ! {key_hashes, self(), Segment},
                      receive {remote, X} -> X end
@@ -1071,11 +1139,19 @@ peval(L) ->
 local_compare(T1, T2) ->
     Remote = fun(get_bucket, {L, B}) ->
                      get_bucket(L, B, T2);
+                (start_exchange_level, {_Level, _Buckets}) ->
+                     ok;
+                (start_exchange_segments, _Segments) ->
+                     ok;
                 (key_hashes, Segment) ->
                      [{_, KeyHashes2}] = key_hashes(T2, Segment),
                      KeyHashes2
              end,
-    compare(T1, Remote).
+    %% compare(T1, Remote).
+    AccFun = fun(Keys, KeyAcc) ->
+                     Keys ++ KeyAcc
+             end,
+    compare2(T1, Remote, AccFun, []).
 
 -spec compare(hashtree(), remote_fun()) -> [keydiff()].
 compare(Tree, Remote) ->
