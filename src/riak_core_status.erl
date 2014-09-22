@@ -182,18 +182,19 @@ ring_status() ->
     %% handoff and which we are still waiting on.
     %% Final result is of the form:
     %%   [{Owner, NextOwner}, [{Index, WaitingMods, CompletedMods, Status}]]
-    TransferStatus = orddict:map(
-                       fun({Owner, _}, Transfers) ->
-                               case orddict:find(Owner, AllMods) of
-                                   error ->
-                                       [{Idx, down, Mods, Status}
-                                        || {Idx, Mods, Status} <- Transfers];
-                                   {ok, OwnerMods} ->
-                                       NodeMods = [Mod || {_App, Mod} <- OwnerMods],
-                                       [{Idx, NodeMods -- Mods, Mods, Status}
-                                        || {Idx, Mods, Status} <- Transfers]
-                               end
-                       end, Merged),
+    TransferStatus =
+        orddict:map(
+          fun({Owner, _}, Transfers) ->
+                  case orddict:find(Owner, AllMods) of
+                      error ->
+                          [{Idx, down, Mods, Status}
+                           || {Idx, Mods, Status} <- Transfers];
+                      {ok, OwnerMods} ->
+                          NodeMods = [Mod || {_App, Mod} <- OwnerMods],
+                          [{Idx, NodeMods -- Mods, Mods, Status}
+                           || {Idx, Mods, Status} <- Transfers]
+                  end
+          end, Merged),
 
     MarkedDown = riak_core_ring:down_members(Ring),
     {Claimant, RingReady, Down2, MarkedDown, TransferStatus}.
