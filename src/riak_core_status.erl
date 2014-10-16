@@ -25,6 +25,8 @@
          transfers/0,
 	 transfer_limit/0,
 	 transfer_limit/1,
+	 rpc_transfer_limit/0,
+	 rpc_transfer_limit/1,
          ring_status/0]).
 
 %% Status writer API
@@ -79,6 +81,37 @@ transfer_limit_status(Limits0) ->
     Limits = lists:keysort(1, Limits0),
     Rows = [[Node, Limit] || {Node, Limit} <- Limits],
     [{table, Schema, Rows}].
+
+-spec rpc_transfer_limit() -> status().
+rpc_transfer_limit() ->
+    {Limits, Down} =
+        riak_core_util:rpc_every_member_ann(riak_core_handoff_manager,
+                                            get_concurrency, [], 5000),
+    rpc_transfer_limit_status(Limits, Down).
+
+-spec rpc_transfer_limit(node()) -> status().
+rpc_transfer_limit(Node) ->
+    case riak_core_util:safe_rpc(Node, riak_core_handoff_manager,
+				 get_concurrency, [], 5000) of
+	{badrpc, rpc_process_down} ->
+	    rpc_transfer_limit_status([], [Node]);
+	Limit ->
+	    rpc_transfer_limit_status([{Node, Limit}], [])
+    end.
+
+-spec rpc_transfer_limit_status([{node(), non_neg_integer()}], [node()]) ->
+    status().
+rpc_transfer_limit_status(Limits, Down) ->
+    Schema = [node, limit],
+    Rows = [[Node, Limit] || {Node, Limit} <- Limits],
+    Table = {table, Schema, Rows},
+    case Down of 
+	[] ->
+	    [Table];
+	_ ->
+	    NodesDown = {alert, [{column, "(offline)", Down}]},
+	    [Table, NodesDown]
+    end.
 
 -spec(transfers() -> {[atom()], [{waiting_to_handoff, atom(), integer()} |
                                  {stopped, atom(), integer()}]}).
