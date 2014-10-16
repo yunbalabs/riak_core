@@ -32,7 +32,8 @@
 	 stat_show/1, stat_info/1, stat_enable/1, stat_disable/1, stat_reset/1]).
 
 %% New API to be used by riak-admin transfers <X>
--export([transfers_limit/0, transfers_limit/1]).
+-export([transfers_limit/0, transfers_limit/1, rpc_transfers_limit/0,
+	rpc_transfers_limit/1]).
 
 %% @doc The following functions in this section are new commands intended to be
 %% visible in riak-admin transfer X commands. They are detailed in this RFC:
@@ -46,6 +47,14 @@ transfers_limit() ->
 
 transfers_limit(Node) ->
     Status = riak_core_status:transfer_limit(Node),
+    print_transfers_limit(Status).
+
+rpc_transfers_limit() ->
+    Status = riak_core_status:rpc_transfer_limit(),
+    print_transfers_limit(Status).
+
+rpc_transfers_limit(Node) ->
+    Status = riak_core_status:rpc_transfer_limit(Node),
     print_transfers_limit(Status).
 
 print_transfers_limit(Status) ->
