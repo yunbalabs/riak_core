@@ -38,6 +38,8 @@ write_status(done, Ctx) ->
     Ctx.
 
 -spec write_table([any()], [[any()]]) -> iolist().
+write_table(_Schema, []) ->
+    "";
 write_table(Schema, Rows) ->
     Table = riak_core_console_table:autosize_create_table(Schema, Rows),
     io_lib:format("~ts~n", [Table]).
