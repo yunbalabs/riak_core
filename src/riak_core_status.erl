@@ -27,7 +27,8 @@
          transfer_limit/1,
          rpc_transfer_limit/0,
          rpc_transfer_limit/1,
-         ring_status/0]).
+         ring_status/0,
+         partitions/2]).
 
 %% Status writer API
 -export([parse/3]).

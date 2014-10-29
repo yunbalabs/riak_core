@@ -37,19 +37,27 @@
 %%      simplified (less BASH) CLI. Arguments are parsed in Erlang rather than
 %%      in bash scripts.
 -spec command([string()]) -> ok | error.
+command([Script, "handoff", "status" | Args0]) ->
+    case getopt:parse(handoff_spec_list("handoff status", "show"), Args0) of
+        {ok, {Args, []}} ->
+            handoff_status(Script, Args);
+        _ ->
+            handoff_usage(Script)
+    end;
+
 command([Script, "handoff", "limit" | Args0]) ->
-    case getopt:parse(handoff_spec_list("handoff limit"), Args0) of
+    case getopt:parse(handoff_spec_list("handoff limit", "set, show"), Args0) of
         {ok, {Args, []}} ->
             handoff_limit(Script, Args);
         _ ->
-            handoff_limit_usage(Script)
+            handoff_usage(Script)
     end;
 
 command([Script, "handoff" | _Args]) ->
     handoff_usage(Script).
 
 %% Specs are {Name, ShortOption, LongOption, Type, Description}
-handoff_spec_list(Cmd) ->
+handoff_spec_list(Cmd, Actions) ->
     [
      {action, undefined, undefined, atom, "The action to perform. One of [set, show]"},
      %% Note that getopt can't accept negative numbers as non-flag values. We'll cross
@@ -69,13 +77,25 @@ handoff_spec_list(Cmd) ->
 align() ->
     string:copies(" ",24).
 
-handoff_limit_usage(Script) ->
-    getopt:usage(handoff_spec_list("handoff limit"), Script ++ " handoff limit",
-                 standard_io).
+handoff_usage(Script, Command, Actions) ->
+    CmdText = "handoff " ++ Command,
+    getopt:usage(handoff_spec_list(CmdText, Actions), Script ++ " " ++ CmdText, standard_io).
 
 handoff_usage(Script) ->
     io:format("Usage: ~s handoff [command], where command is one of:~n~n"
               "    limit: show or set handoff concurrency limits~n~n", [Script]).
+
+handoff_status(Script, Args) ->
+    case handoff_command_mode(Args) of
+    show ->
+        show_handoff_status(Script, Args);
+    usage ->
+        handoff_usage(Script, "status", "show")
+    end.
+
+show_handoff_status(_Script, _Args) ->
+    riak_core_handoff_status:print_handoff_summary().
+
 
 %% @doc The following functions in this section are new commands intended to be
 %% visible in riak-admin transfer X commands. They are detailed in this RFC:
@@ -84,27 +104,27 @@ handoff_usage(Script) ->
 %% for now they are only accessible from the erlang shell.
 %% ============================================================================
 handoff_limit(Script, Args) ->
-    case handoff_limit_mode(Args) of
-        show ->
-            show_handoff_limit(Script, Args);
-        set ->
-            set_handoff_limits(Script, Args);
-        usage ->
-            handoff_limit_usage(Script)
+    case handoff_command_mode(Args) of
+    show ->
+        show_handoff_limit(Script, Args);
+    set ->
+        set_handoff_limits(Script, Args);
+    usage ->
+        handoff_usage(Script, "limit", "set, show")
     end.
 
-handoff_limit_mode(Args) ->
+handoff_command_mode(Args) ->
     Action = find_flag(action, Args),
-    Limit = find_flag(value, Args),
-    case {Action, Limit} of
-        {not_found, not_found} ->
-            usage;
-        {show, not_found} ->
-            show;
-        {set, _} ->
-            set;
-        _ ->
-            usage
+    Value = find_flag(value, Args),
+    case {Action, Value} of
+    {not_found, _} ->
+        usage;
+    {show, not_found} ->
+        show;
+    {set, _} ->
+        set;
+    _ ->
+        usage
     end.
 
 find_flag(Flag, Args) ->
