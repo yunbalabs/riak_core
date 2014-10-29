@@ -49,7 +49,7 @@ transfer_summary() ->
     %% TODO (jwest): splitting this out is stupid because we join back together
     {OngoingOwnership, OngoingFallback, _, _} = ongoing_transfers_summary(),
     AllSummary = build_transfer_summary({OngoingOwnership, OngoingFallback},
-                                        {outstanding_count(ownership_transfer, Ring), outstanding_count(hinted_handoff, Ring)}),
+                                        {outstanding_count(ownership, Ring), outstanding_count(hinted, Ring)}),
     %% TODO (jwest): this is better in a macro
     %% OwnershipSchema = ["Node"
     %%           , "Ongoing Ownership", "Oustanding Ownership", "Total Ownership"],
@@ -69,7 +69,7 @@ transfer_summary() ->
     Schema = ["Node"
               , "Ownership"
               , "Fallback"],
-    Header = {text, "Key: (ongoing) outstanding / total"},
+    Header = {text, "Key: (active) pending / total"},
     Table = {table, Schema,
              [begin
                   FSummary = proplists:get_value(Node, AllSummary#transfer_summary.fallback,
@@ -127,7 +127,7 @@ build_fallback_summary(Ongoing, Outstanding) ->
                 end, [], Ongoing).
 
 -spec outstanding_count(ho_type(), riak_core_ring:riak_core_ring()) -> [{node(), pos_integer()}].
-outstanding_count(ownership_transfer, Ring) ->
+outstanding_count(ownership, Ring) ->
     OwnershipChanges = riak_core_ring:pending_changes(Ring),
     lists:foldl(fun({_, Source, _, _, awaiting}, Acc) ->
                         OldCount = case lists:keyfind(Source, 1, Acc) of
@@ -138,7 +138,7 @@ outstanding_count(ownership_transfer, Ring) ->
                    (_, Acc) ->
                         Acc
                 end, [], OwnershipChanges);
-outstanding_count(hinted_handoff, Ring) ->
+outstanding_count(hinted, Ring) ->
     [begin
          {_, Sec, _} = riak_core_status:partitions(Node, Ring),
          {Node, length(Sec)}
@@ -158,11 +158,11 @@ ongoing_transfers_summary() ->
     lists:foldl(fun({Node, Outbounds}, {Ownerships, Fallbacks, Resizes, Repairs}) ->
                         {O, F, R1, R2} = lists:foldl(fun({status_v2, Status}, {Own, Fall, Res, Rep}) ->
                                                              case proplists:get_value(type, Status) of
-                                                                 ownership_transfer ->
+                                                                 ownership ->
                                                                      {Own + 1, Fall, Res, Rep};
-                                                                 hinted_handoff ->
+                                                                 hinted ->
                                                                      {Own, Fall + 1, Res, Rep};
-                                                                 resize_transfer ->
+                                                                 resize ->
                                                                      {Own, Fall, Res + 1, Rep};
                                                                  repair ->
                                                                      {Own, Fall, Res, Rep + 1}
