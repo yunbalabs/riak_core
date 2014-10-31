@@ -220,10 +220,10 @@ started(wait_for_init, _From, State =
 
 do_init(State = #state{index=Index, mod=Mod, forward=Forward}) ->
     {ModState, Props} = case Mod:init([Index]) of
-        {ok, MS} -> {MS, []};
-        {ok, MS, P} -> {MS, P};
-        {error, R} -> {error, R}
-    end,
+                            {ok, MS} -> {MS, []};
+                            {ok, MS, P} -> {MS, P};
+                            {error, R} -> {error, R}
+                        end,
     case {ModState, Props} of
         {error, Reason} ->
             {error, Reason};
@@ -233,10 +233,10 @@ do_init(State = #state{index=Index, mod=Mod, forward=Forward}) ->
                     lager:debug("starting worker pool ~p with size of ~p~n",
                                 [WorkerModule, PoolSize]),
                     {ok, PoolPid} = riak_core_vnode_worker_pool:start_link(WorkerModule,
-                                                                       PoolSize,
-                                                                       Index,
-                                                                       WorkerArgs,
-                                                                       worker_props);
+                                                                           PoolSize,
+                                                                           Index,
+                                                                           WorkerArgs,
+                                                                           worker_props);
                 _ ->
                     PoolPid = PoolConfig = undefined
             end,
@@ -420,7 +420,7 @@ vnode_handoff_command(Sender, Request, ForwardTo,
             case HOType of
                 %% resize op and transfer ongoing
                 resize -> vnode_forward(resize, ForwardTo, Sender,
-                                                 {resize_forward, Request}, State);
+                                        {resize_forward, Request}, State);
                 %% resize op ongoing, no resize transfer ongoing, arrive here
                 %% via forward_or_vnode_command
                 undefined -> vnode_forward(resize, ForwardTo, Sender,
@@ -468,11 +468,11 @@ active(?VNODE_REQ{sender=Sender, request=Request},
        State=#state{handoff_target=HT}) when HT =:= none ->
     forward_or_vnode_command(Sender, Request, State);
 active(?VNODE_REQ{sender=Sender, request=Request},
-                  State=#state{handoff_type=resize,
-                               handoff_target={HOIdx,HONode},
-                               index=Index,
-                               forward=Forward,
-                               mod=Mod}) ->
+       State=#state{handoff_type=resize,
+                    handoff_target={HOIdx,HONode},
+                    index=Index,
+                    forward=Forward,
+                    mod=Mod}) ->
     RequestHash = Mod:request_hash(Request),
     case RequestHash of
         %% will never have enough information to forward request so only handle locally
@@ -515,7 +515,7 @@ active({send_manager_event, Event}, State) ->
 active({trigger_handoff, TargetNode}, State) ->
     active({trigger_handoff, State#state.index, TargetNode}, State);
 active({trigger_handoff, TargetIdx, TargetNode}, State) ->
-     maybe_handoff(TargetIdx, TargetNode, State);
+    maybe_handoff(TargetIdx, TargetNode, State);
 active(trigger_delete, State=#state{mod=Mod,modstate=ModState,index=Idx}) ->
     case mark_delete_complete(Idx, Mod) of
         {ok, _NewRing} ->
@@ -579,25 +579,25 @@ mark_handoff_complete(SrcIdx, Target, SeenIdxs, Mod, resize) ->
 mark_handoff_complete(Idx, {Idx, New}, [], Mod, _) ->
     Prev = node(),
     Result = riak_core_ring_manager:ring_trans(
-      fun(Ring, _) ->
-              Owner = riak_core_ring:index_owner(Ring, Idx),
-              {_, NextOwner, Status} = riak_core_ring:next_owner(Ring, Idx, Mod),
-              NewStatus = riak_core_ring:member_status(Ring, New),
+               fun(Ring, _) ->
+                       Owner = riak_core_ring:index_owner(Ring, Idx),
+                       {_, NextOwner, Status} = riak_core_ring:next_owner(Ring, Idx, Mod),
+                       NewStatus = riak_core_ring:member_status(Ring, New),
 
-              case {Owner, NextOwner, NewStatus, Status} of
-                  {Prev, New, _, awaiting} ->
-                      Ring2 = riak_core_ring:handoff_complete(Ring, Idx, Mod),
-                      %% Optimization. Only alter the local ring without
-                      %% triggering a gossip, thus implicitly coalescing
-                      %% multiple vnode handoff completion events. In the
-                      %% future we should decouple vnode handoff state from
-                      %% the ring structure in order to make gossip independent
-                      %% of ring size.
-                      {set_only, Ring2};
-                  _ ->
-                      ignore
-              end
-      end, []),
+                       case {Owner, NextOwner, NewStatus, Status} of
+                           {Prev, New, _, awaiting} ->
+                               Ring2 = riak_core_ring:handoff_complete(Ring, Idx, Mod),
+                               %% Optimization. Only alter the local ring without
+                               %% triggering a gossip, thus implicitly coalescing
+                               %% multiple vnode handoff completion events. In the
+                               %% future we should decouple vnode handoff state from
+                               %% the ring structure in order to make gossip independent
+                               %% of ring size.
+                               {set_only, Ring2};
+                           _ ->
+                               ignore
+                       end
+               end, []),
 
     case Result of
         {ok, NewRing} ->
@@ -834,7 +834,7 @@ handle_info({'EXIT', Pid, Reason},
                                                        WorkerArgs,
                                                        worker_props),
             continue(State#state{pool_pid=NewPoolPid})
-        end;
+    end;
 
 handle_info({'DOWN',_Ref,process,_Pid,normal}, _StateName,
             State=#state{modstate={deleted, _}}) ->
@@ -858,9 +858,9 @@ handle_info({'EXIT', Pid, Reason}, StateName, State=#state{mod=Mod,modstate=ModS
         case Mod:handle_exit(Pid, Reason, ModState) of
             {noreply,NewModState} ->
                 {next_state, StateName, State#state{modstate=NewModState},
-                    State#state.inactivity_timeout};
+                 State#state.inactivity_timeout};
             {stop, Reason1, NewModState} ->
-                 {stop, Reason1, State#state{modstate=NewModState}}
+                {stop, Reason1, State#state{modstate=NewModState}}
         end
     catch
         _ErrorType:undef ->
@@ -878,7 +878,7 @@ handle_info(Info, StateName, State=#state{mod=Mod,modstate=ModState}) ->
     end.
 
 terminate(Reason, _StateName, #state{mod=Mod, modstate=ModState,
-        pool_pid=Pool}) ->
+                                     pool_pid=Pool}) ->
     %% Shutdown if the pool is still alive and a normal `Reason' is
     %% given - there could be a race on delivery of the unregistered
     %% event and successfully shutting down the pool.
@@ -890,8 +890,8 @@ terminate(Reason, _StateName, #state{mod=Mod, modstate=ModState,
                 ok
         end
     catch C:T ->
-        lager:error("Error while shutting down vnode worker pool ~p:~p trace : ~p",
-                    [C, T, erlang:get_stacktrace()])
+            lager:error("Error while shutting down vnode worker pool ~p:~p trace : ~p",
+                        [C, T, erlang:get_stacktrace()])
     after
         case ModState of
             %% Handoff completed, Mod:delete has been called, now terminate.

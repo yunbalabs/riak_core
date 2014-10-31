@@ -87,10 +87,10 @@ handoff_usage(Script) ->
 
 handoff_status(Script, Args) ->
     case handoff_command_mode(Args) of
-    show ->
-        show_handoff_status(Script, Args);
-    usage ->
-        handoff_usage(Script, "status", "show")
+        show ->
+            show_handoff_status(Script, Args);
+        usage ->
+            handoff_usage(Script, "status", "show")
     end.
 
 show_handoff_status(_Script, _Args) ->
@@ -105,26 +105,26 @@ show_handoff_status(_Script, _Args) ->
 %% ============================================================================
 handoff_limit(Script, Args) ->
     case handoff_command_mode(Args) of
-    show ->
-        show_handoff_limit(Script, Args);
-    set ->
-        set_handoff_limits(Script, Args);
-    usage ->
-        handoff_usage(Script, "limit", "set, show")
+        show ->
+            show_handoff_limit(Script, Args);
+        set ->
+            set_handoff_limits(Script, Args);
+        usage ->
+            handoff_usage(Script, "limit", "set, show")
     end.
 
 handoff_command_mode(Args) ->
     Action = find_flag(action, Args),
     Value = find_flag(value, Args),
     case {Action, Value} of
-    {not_found, _} ->
-        usage;
-    {show, not_found} ->
-        show;
-    {set, _} ->
-        set;
-    _ ->
-        usage
+        {not_found, _} ->
+            usage;
+        {show, not_found} ->
+            show;
+        {set, _} ->
+            set;
+        _ ->
+            usage
     end.
 
 find_flag(Flag, Args) ->

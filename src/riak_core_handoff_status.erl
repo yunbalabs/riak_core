@@ -66,9 +66,7 @@ transfer_summary() ->
     %%                     Summary#node_transfer_summary.outstanding,
     %%                     Summary#node_transfer_summary.total] || {Node, Summary} <- AllSummary#transfer_summary.fallback]},
     %%    [OwnershipTable, FallbackTable].
-    Schema = ["Node"
-              , "Ownership"
-              , "Fallback"],
+    Schema = ["Node", "Ownership", "Fallback"],
     Header = {text, "Key: (active) pending / total"},
     Table = {table, Schema,
              [begin
@@ -145,7 +143,7 @@ outstanding_count(hinted, Ring) ->
      end || Node <- riak_core_ring:ready_members(Ring)].
 
 
-%outstanding_transfer_summary() ->
+                                                %outstanding_transfer_summary() ->
 
 ongoing_transfers_summary() ->
     %% TODO (jwest): have option to use cluster metadata instead of this rpc
