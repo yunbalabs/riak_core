@@ -59,7 +59,7 @@ command([Script, "handoff" | _Args]) ->
 %% Specs are {Name, ShortOption, LongOption, Type, Description}
 handoff_spec_list(Cmd, Actions) ->
     [
-     {action, undefined, undefined, atom, "The action to perform. One of [set, show]"},
+     {action, undefined, undefined, atom, "The action to perform. One of [" ++ Actions ++ "]"},
      %% Note that getopt can't accept negative numbers as non-flag values. We'll cross
      %% that bridge when we get to it at this point, as we don't think this will be very common.
      {value, undefined, undefined, string, "The value to which the " ++ Cmd ++" will be set."},
