@@ -44,7 +44,9 @@
          set_concurrency/1,
          get_concurrency/0,
          set_recv_data/2,
-         kill_handoffs/0
+         kill_handoffs/0,
+         enable/1,
+         disable/1
         ]).
 
 -include("riak_core_handoff.hrl").
@@ -137,6 +139,23 @@ kill_xfer(SrcNode, ModSrcTarget, Reason) ->
 kill_handoffs() ->
     set_concurrency(0).
 
+%% @doc Enable handoff in the specified direction
+-spec enable(inbound|outbound) -> ok.
+enable(inbound) ->
+    application:set_env(riak_core, disable_inbound_handoff, false);
+enable(outbound) ->
+    application:set_env(riak_core, disable_outbound_handoff, false).
+
+%% @doc Disable handoff in the specified direction, stopping all in-progress
+%%      handoff in that direction in the process.
+-spec disable(inbound|outbound) -> ok | {error, atom()}.
+disable(inbound) ->
+    ok = application:set_env(riak_core, disable_inbound_handoff, true),
+    gen_server:call(?MODULE, {kill_in_direction, inbound}, infinity);
+disable(outbound) ->
+    ok = application:set_env(riak_core, disable_outbound_handoff, true),
+    gen_server:call(?MODULE, {kill_in_direction, outbound}, infinity).
+
 add_exclusion(Module, Index) ->
     gen_server:cast(?MODULE, {add_exclusion, {Module, Index}}).
 
@@ -217,7 +236,17 @@ handle_call({set_concurrency,Limit},_From,State=#state{handoffs=HS}) ->
 
 handle_call(get_concurrency, _From, State) ->
     Concurrency = get_concurrency_limit(),
-    {reply, Concurrency, State}.
+    {reply, Concurrency, State};
+
+handle_call({kill_in_direction, Direction}, _From, State=#state{handoffs=HS}) ->
+    %% TODO (atb): Refactor this to comply with max_concurrency logspam PR's exit codes
+    %% NB. As-is this handles worker termination the same way as set_concurrency;
+    %%     no state update is performed here, we let the worker DOWNs mark them
+    %%     as dead rather than trimming here.
+    Kill = [H || H=#handoff_status{direction=D} <- HS, D =:= Direction],
+    _ = [erlang:exit(Pid, max_concurrency) ||
+        #handoff_status{transport_pid=Pid} <- Kill],
+    {reply, ok, State}.
 
 handle_cast({del_exclusion, {Mod, Idx}}, State=#state{excl=Excl}) ->
     Excl2 = sets:del_element({Mod, Idx}, Excl),
