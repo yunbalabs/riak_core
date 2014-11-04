@@ -19,7 +19,8 @@
 %% -------------------------------------------------------------------
 
 -module(riak_core_console).
--export([command/1]).
+-export([command/1,
+         register_handoff_commands/0]).
 
 %% Legacy exports - unless needed by other modules, only expose functionality via command/1
 -export([member_status/1, ring_status/1, print_member_status/2,
@@ -34,117 +35,44 @@
          security_enable/1, security_disable/1, security_status/1, ciphers/1,
 	 stat_show/1, stat_info/1, stat_enable/1, stat_disable/1, stat_reset/1]).
 
-%% @doc handoff limit command
+register_handoff_commands() ->
+    Script = "riak-admin",
+    Cmd = "handoff",
+    SubCmd = "limit",
+    Actions = [{"set", fun set_handoff_limit/2,
+                [fun list_to_non_neg_int/1],
+                "Set the handoff concurrency limit."},
+               {"show", fun show_handoff_limit/2, [],
+                "Show the handoff concurrency limit."}],
+    Flags = [{"node", "n", fun list_to_atom/1,
+              "The node to apply the operation on. If not supplied,"++
+              "operation will be applied to all nodes"},
+             {"force-rpc", "f", undefined,
+              "Force status operations to send a message to each node"++
+              "in the cluster instead of using cluster metadata"++
+              "WARNING: This may be an expensive operation"}],
+    riak_core_console_manager:register_command(Script, Cmd, SubCmd, Actions,
+        Flags).
+
 -spec command([string()]) -> ok | error.
-command([Script, "handoff", "limit" | Args0]) ->
-    case getopt:parse(handoff_spec_list("handoff limit"), Args0) of
-        {ok, {Args, []}} ->
-            handoff_limit(Script, Args);
-        _ ->
-            handoff_limit_usage(Script)
-    end;
-
-command([Script, "handoff" | _Args]) ->
-    handoff_usage(Script).
-
-%% Specs are {Name, ShortOption, LongOption, Type, Description}
-handoff_spec_list(Cmd) ->
-    [
-    %% use limit for the name, since that shows up in the usage as the
-    %% variable name
-    {action, undefined, undefined, atom, "The action to perform. One of [set, show]"},
-    %% Note that getopt can't accept negative numbers as non-flag values. We'll cross
-    %% that bridge when we get to it at this point, as we don't think this will be very common.
-    {value, undefined, undefined, string, "The value to which the " ++ Cmd ++" will be set."},
-    {node, $n, "node", atom, 
-        "The node on which to view/change the " ++ Cmd ++ ".\n" ++ align()
-        ++ "If node is not provided, action applies cluster-wide."},
-    {force, $f, "force-rpc", undefined, 
-        "Contact every node for the latest " ++ Cmd ++ ".\n" ++
-        align() ++ "WARNING: This can be very expensive."}
-    ].
-
-%% @doc Return a string of 24 spaces. This is the length required to align with
-%% the description part of the flags in the usage output.
--spec align() -> list().
-align() ->
-    string:copies(" ",24).
-
-handoff_limit_usage(Script) ->
-    getopt:usage(handoff_spec_list("handoff limit"), Script ++ " handoff limit",
-             standard_io).
-
-handoff_usage(Script) ->
-    io:format("Usage: ~s handoff [command], where command is one of:~n~n"
-        "    limit: show or set handoff concurrency limits~n~n", [Script]).
+command([Script, Cmd, SubCmd | Args]) ->
+    riak_core_console_manager:run(Script, Cmd, SubCmd, Args).
 
 %% @doc The following functions in this section are new commands intended to be
 %% visible in riak-admin transfer X commands. They are detailed in this RFC:
 %% https://docs.google.com/a/basho.com/document/d/1Qjbj6p4cppAxBkwp5yAnChVnBt8-J7HQXDKF879QaLQ
 %% Eventually they will replace the current riak-admin transfers command, but
 %% for now they are only accessible from the erlang shell.
-%% ============================================================================ 
-handoff_limit(Script, Args) ->
-    case handoff_limit_mode(Args) of
-    show ->
-        show_handoff_limit(Script, Args);
-    set ->
-        set_handoff_limits(Script, Args);
-    usage ->
-        handoff_limit_usage(Script)
-    end.
-
-handoff_limit_mode(Args) ->
-    Action = find_flag(action, Args),
-    Limit = find_flag(value, Args),
-    case {Action, Limit} of
-    {not_found, not_found} ->
-        usage;
-    {show, not_found} ->
-        show;
-    {set, _} ->
-        set;
-    _ ->
-        usage
-    end.
-
-find_flag(Flag, Args) ->
-    case lists:keyfind(Flag, 1, Args) of
-        false ->
-        %% Some flags don't have options and are returned as atoms.
-        case lists:member(Flag, Args) of
-            true -> Flag;
-            false -> not_found
-        end;
-        {Flag, Val} ->
-            Val
-   end.
-
-set_handoff_limits(Script, Args) ->
-    % We already check for 'value' in handoff_limit/2 so we know it's here
-    Limit = find_flag(value, Args),
-    check_and_set_handoff_limit(Script, Args, Limit).
-
-check_and_set_handoff_limit(Script, Args, Limit0) ->
-    case check_limit(Limit0) of
-        invalid ->
-            invalid_handoff_limit(Limit0);
-        Limit ->
-            set_handoff_limit(Script, Args, Limit)
-    end.
-
-invalid_handoff_limit(Limit) ->
-    io:format("Invalid limit: ~s~n", [Limit]).
-
-show_handoff_limit(_Script, Args) ->
-    Node = find_flag(node, Args),
-    Force = find_flag(force, Args),
+%% ============================================================================
+show_handoff_limit([], Flags) ->
+    Node = lists:keyfind(node, 1, Flags),
+    Force = lists:keyfind(force, 1, Flags),
     case {Node, Force} of
-    {not_found, not_found} ->
+    {false, false} ->
         show_handoff_limit();
-    {_, not_found} ->
+    {_, false} ->
         show_handoff_limit(Node);
-    {not_found, force} ->
+    {false, force} ->
         show_rpc_handoff_limit();
     {_, force} ->
         show_rpc_handoff_limit(Node)
@@ -166,24 +94,23 @@ show_rpc_handoff_limit(Node) ->
     Status = riak_core_status:rpc_transfer_limit(Node),
     print_handoff_limit(Status).
 
-set_handoff_limit(_Script, Args, Limit) ->
-    Node = find_flag(node, Args),
-    case Node of
-    not_found ->
-        set_handoff_limit(Limit);
-    _ ->
-        set_handoff_limit(Node, Limit)
+set_handoff_limit([Limit], Flags) ->
+    case lists:keyfind(node, 1, Flags) of
+        {node, Node} ->
+            set_node_handoff_limit(Node, Limit);
+        false->
+            set_handoff_limit(Limit)
     end.
 
 set_handoff_limit(Limit) ->
-    io:format("Setting transfer limit to ~b across the cluster~n", [Limit]), 
+    io:format("Setting transfer limit to ~b across the cluster~n", [Limit]),
     {_, Down} = riak_core_util:rpc_every_member_ann(riak_core_handoff_manager,
                             set_concurrency,
                             [Limit], 5000),
     (Down == []) orelse io:format("Failed to set limit for: ~p~n", [Down]),
     ok.
 
-set_handoff_limit(Node, Limit) ->
+set_node_handoff_limit(Node, Limit) ->
     case riak_core_util:safe_rpc(Node, riak_core_handoff_manager,
                                  set_concurrency, [Limit]) of
         {badrpc, _} ->
@@ -198,7 +125,24 @@ print_handoff_limit(Status) ->
     Output = riak_core_console_writer:write(Status),
     io:format("~s", [Output]),
     ok.
-%% ============================================================================ 
+
+%% We don't know where this is being parsed from. It could be a flag or argument
+%% value.
+list_to_non_neg_int(Val0) ->
+    Err = {error, {invalid_value, Val0}},
+    try
+        Val = list_to_integer(Val0),
+        case Val >= 0 of
+            true ->
+                Val;
+            false ->
+                Err
+        end
+    catch error:badarg ->
+        Err
+    end.
+
+%% ============================================================================
 
 %% @doc Return for a given ring and node, percentage currently owned and
 %% anticipated after the transitions have been completed.
@@ -972,7 +916,7 @@ transfer_limit([NodeStr, LimitStr]) ->
             io:format("Invalid limit: ~s~n", [LimitStr]),
             error;
         Limit ->
-            set_handoff_limit(Node, Limit)
+            set_node_handoff_limit(Node, Limit)
     end.
 
 check_limit(Str) ->
