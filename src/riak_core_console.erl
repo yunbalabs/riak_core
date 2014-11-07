@@ -28,7 +28,8 @@
          add_source/1, del_source/1, grant/1, revoke/1,
          print_users/1, print_user/1, print_sources/1,
          print_groups/1, print_group/1, print_grants/1,
-         security_enable/1, security_disable/1, security_status/1, ciphers/1]).
+         security_enable/1, security_disable/1, security_status/1, ciphers/1,
+         patch_report/0, print_patch_report/1]).
 
 %% @doc Return for a given ring and node, percentage currently owned and
 %% anticipated after the transitions have been completed.
@@ -1141,3 +1142,34 @@ parse_cidr(CIDR) ->
     [IP, Mask] = string:tokens(CIDR, "/"),
     {ok, Addr} = inet_parse:address(IP),
     {Addr, list_to_integer(Mask)}.
+
+format_patch_metadata({Mod, Metadata, Path}) ->
+    PatchName = proplists:get_value(name, Metadata),
+    BaseInformation = io_lib:format("~ts : ~ts@~ts~n", [PatchName, Mod, Path]),
+    OptionalMetadata = lists:flatmap(fun ({Tag, Value}) ->
+        io_lib:format("    ~ts: ~p~n", [Tag, Value])
+    end, proplists:delete(name, Metadata)),
+    BaseInformation ++ OptionalMetadata.
+
+patch_report() ->
+    LoadedPatches = patch_util:loaded_taints(),
+    AvailablePatches = patch_util:code_path_taints(),
+    UnloadedPatches = lists:subtract(AvailablePatches, LoadedPatches),
+    IncompatiblePatches = lists:subtract(AvailablePatches,
+                                         patch_util:incompatible_otp(AvailablePatches)),
+    % TODO (atb): Read the patch-blacklist / fixed-issue file to fill out this list
+    ObsoletePatches = lists:subtract(AvailablePatches,
+                                     patch_util:obsolete_patches([], AvailablePatches)),
+    io_lib:format("Loaded Patches:~n", [])
+    ++ io_lib:format("~ts", lists:flatmap(fun format_patch_metadata/1, LoadedPatches))
+    ++ io_lib:format("Available Patches:~n", [])
+    ++ io_lib:format("~ts", lists:flatmap(fun format_patch_metadata/1, UnloadedPatches))
+    ++ io_lib:format("Incompatible Patches:~n", [])
+    ++ io_lib:format("~ts", lists:flatmap(fun format_patch_metadata/1, IncompatiblePatches))
+    ++ io_lib:format("Obsolete Patches:~n", [])
+    ++ io_lib:format("~ts", lists:flatmap(fun format_patch_metadata/1, ObsoletePatches)).
+
+print_patch_report([]) ->
+    io:format("~ts", [patch_report()]).
+
+
