@@ -37,14 +37,17 @@ transfer_summary() ->
     %% TODO (jwest): this is better in a macro
     %% TODO (mallen): suppress empty categories?
     Schema = ["Node", "Ownership", "Fallback", "Resize", "Repair"],
-    Header = {text, "Key: (ongoing) outstanding / total"},
-    Table = {table, Schema,
-        [ [ format_node_name(Node, DownNodes), format_summary(S) ] 
+    Header = {text, "Key: Ongoing / Outstanding / Total"},
+    Table = {table, Schema, 
+        [ [ format_node_name(Node, DownNodes) | format_summary(S) ] 
                                 || {Node, S} <- orddict:to_list(Summary) ]},
     [Header, Table].
 
+rt(I) -> 
+    binary_to_list(iolist_to_binary(I)).
+
 format_summary(S) ->
-    format_summary(S, default, " ( ~3.. B ) ~3.. B / ~3.. B ").
+    format_summary(S, " ~B / ~B / ~B ").
 
 format_summary(Summary, Fields, OutputFormat) ->
     [ format_summary1(orddict:fetch(T, Summary), Fields, OutputFormat) || 
@@ -70,9 +73,9 @@ format_summary1({On, Out, Total, _Data}, default, OutputFormat) ->
 format_node_name(Node, DownNodes) when is_atom(Node) ->
     case lists:member(Node, DownNodes) of
         true  -> 
-            "* " ++ atom_to_list(Node);
+            "**" ++ atom_to_list(Node) ++ "  ";
         false -> 
-            "  " ++ atom_to_list(Node)
+            "  " ++ atom_to_list(Node) ++ "  "
     end.
 
 build_transfer_summary({OngoingSummary, DownNodes}, Ring) ->
@@ -109,7 +112,10 @@ build_summary_tuple(Data, Total) ->
 -spec outstanding_count(ho_type(), riak_core_ring:riak_core_ring()) -> [{node(), pos_integer()}].
 outstanding_count(ownership_transfer, Ring) ->
     OwnershipChanges = riak_core_ring:pending_changes(Ring),
-    lists:foldl(fun({_, Source, _, _, awaiting}, Acc) ->
+    lists:foldl(fun
+                  ({_, _, '$resize', _, _}, Acc) ->
+                        Acc;
+                  ({_, Source, _, _, awaiting}, Acc) ->
                         OldCount = case lists:keyfind(Source, 1, Acc) of
                                        false -> 0;
                                        {Source, OC} -> OC
