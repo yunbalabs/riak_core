@@ -36,10 +36,12 @@
   Size >= 8
  end}.
 
+
 %% @doc Number of concurrent node-to-node transfers allowed.
 {mapping, "transfer_limit", "riak_core.handoff_concurrency", [
   {datatype, integer},
   {default, 2},
+  {validators, ["non_negative"]},
   {commented, 2}
 ]}.
 
