@@ -44,13 +44,26 @@ transfer_summary() ->
     [Header, Table].
 
 format_summary(S) ->
-    format_summary(S, " ( ~3.. B ) ~3.. B / ~3.. B ").
+    format_summary(S, default, " ( ~3.. B ) ~3.. B / ~3.. B ").
 
-format_summary(Summary, OutputFormat) ->
-    [ format_summary1(orddict:fetch(T, Summary), OutputFormat) || 
+format_summary(Summary, Fields, OutputFormat) ->
+    [ format_summary1(orddict:fetch(T, Summary), Fields, OutputFormat) || 
         T <- [ownership_transfer, hinted_handoff, resize_transfer, repair] ].
 
-format_summary1({On, Out, Total}, OutputFormat) ->
+% The contents of Data 
+% Quoting from riak_core_handoff_manager.erl #368
+%  [{mod, Mod},
+%   {src_partition, SrcP},
+%   {target_partition, TargetP},
+%   {src_node, SrcNode},
+%   {target_node, TargetNode},
+%   {direction, Dir},
+%   {status, Status},
+%   {start_ts, StartTS},
+%   {sender_pid, TPid},
+%   {stats, calc_stats(HO)}]
+
+format_summary1({On, Out, Total, _Data}, default, OutputFormat) ->
     io_lib:format(OutputFormat, [On, Out, Total]).
     
 -spec format_node_name(node(), [node()]) -> string().
@@ -70,21 +83,27 @@ build_transfer_summary({OngoingSummary, DownNodes}, Ring) ->
        OngoingSummary), DownNodes}.
 
 merge_outstanding(Node, Ongoing, Outstanding) ->
-    [OO, OH, ORz, ORp] = lists:map(
+    [O, H, Rz, Rp] = lists:map(
         fun(L) -> proplists:get_value(Node, L, 0) end, Outstanding),
     orddict:map(
       fun(K, V) -> 
         case K of
             ownership_transfer -> 
-                    {V, OO  - V, OO };
+                build_summary_tuple(V, O);
                 hinted_handoff -> 
-                    {V, OH  - V, OH }; 
+                build_summary_tuple(V, H);
                resize_transfer -> 
-                    {V, ORz - V, ORz}; 
+                build_summary_tuple(V, Rz);
                         repair -> 
-                    {V, ORp - V, ORp}
+                build_summary_tuple(V, Rp)
         end
       end, Ongoing).
+
+build_summary_tuple(Data, Total) ->
+    C = length(Data),
+    O = max(Total - C, C),
+    T = max(Total, C),
+    {C, O, T, Data}.
 
 
 -spec outstanding_count(ho_type(), riak_core_ring:riak_core_ring()) -> [{node(), pos_integer()}].
@@ -144,13 +163,13 @@ build_ongoing_node_summaries({Node, OutboundTransfers}, Acc) ->
 build_summaries(OutboundTransfers) ->
     I = orddict:from_list(
           [
-               {ownership_transfer, 0}, 
-               {hinted_handoff, 0}, 
-               {resize_transfer, 0}, 
-               {repair, 0}
+               {ownership_transfer, []}, 
+               {hinted_handoff, []}, 
+               {resize_transfer, []}, 
+               {repair, []}
           ]),
-    lists:foldl(fun count_handoff_types/2, I, OutboundTransfers).
+    lists:foldl(fun store_handoff_by_type/2, I, OutboundTransfers).
 
-count_handoff_types({status_v2, Status}, D) ->
+store_handoff_by_type({status_v2, Status}, D) ->
     {_, Type} = lists:keyfind(type, 1, Status),
-    orddict:update_counter(Type, 1, D).
+    orddict:append(Type, Status, D).
