@@ -25,6 +25,7 @@
          transfers/0,
          transfer_limit/0,
          transfer_limit/1,
+         partitions/2,
          rpc_transfer_limit/0,
          rpc_transfer_limit/1,
          ring_status/0]).
