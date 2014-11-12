@@ -46,7 +46,10 @@
 	 get_concurrency/1,
 	 get_all_concurrency/0,
          set_recv_data/2,
-         kill_handoffs/0
+         kill_handoffs/0,
+         set_transfer_limit/3,
+         set_handoff_limit/1,
+         set_node_handoff_limit/2
         ]).
 
 -include("riak_core_handoff.hrl").
@@ -78,6 +81,8 @@ init([]) ->
     %% On startup we use the config value and override anything already in
     %% cluster metadata.
     Limit = get_configured_concurrency(),
+    register_cli_commands(),
+    register_cli_config(),
     {ok, _} = timer:apply_after(1, ?MODULE, set_concurrency, [Limit]),
     {ok, #state{excl=sets:new(), handoffs=[]}}.
 
@@ -616,6 +621,116 @@ kill_xfer_i(ModSrcTarget, Reason, HS) ->
             exit(TP, {kill_xfer, Reason}),
             kill_xfer_i(ModSrcTarget, Reason, HS2)
     end.
+
+%% @doc The following functions in this section are new commands intended to be
+%% visible in riak-admin transfer X commands. They are detailed in this RFC:
+%% https://docs.google.com/a/basho.com/document/d/1Qjbj6p4cppAxBkwp5yAnChVnBt8-J7HQXDKF879QaLQ
+%% Eventually they will replace the current riak-admin transfers command, but
+%% for now they are only accessible from the erlang shell.
+%% ============================================================================
+all_cli_flags() ->
+    [{node, [{shortname, "n"},
+             {longname, "node"},
+             {typecast, fun list_to_atom/1},
+             {description,
+                 "The node to apply the operation on."}]},
+
+     {'force-rpc', [{shortname, "f"},
+                    {longname, "force-rpc"},
+                    {description,
+                        "Force status operations to send a message to each node"++
+                        "in the cluster instead of using cluster metadata"++
+                        "WARNING: This may be an expensive operation"}]}].
+
+register_cli_commands() ->
+    Cmd = ["riak-admin", "handoff", "limit"],
+    Description = "Show the number of concurrent transfers allowed",
+    %% There are no key/value arguments for this command
+    Keys = [],
+    Flags = all_cli_flags(),
+    Fun = fun show_handoff_limit/2,
+    riak_core_console_manager:register_command(Cmd, Description, Keys, Flags,
+        Fun).
+
+
+%% Configuration commands are 'set' and 'show'.
+register_cli_config() ->
+    Key = ["transfer_limit"],
+    Callback = fun set_transfer_limit/3,
+    riak_core_console_manager:register_config(Key, Callback).
+
+show_handoff_limit([], Flags) ->
+    Node0 = lists:keyfind(node, 1, Flags),
+    Force = lists:keyfind('force-rpc', 1, Flags),
+    case {Node0, Force} of
+    {false, false} ->
+        show_handoff_limit();
+    {{node, Node}, false} ->
+        show_handoff_limit(Node);
+    {false, _} ->
+        show_rpc_handoff_limit();
+    {{node, Node}, _} ->
+        show_rpc_handoff_limit(Node)
+    end.
+
+show_handoff_limit() ->
+    Status = riak_core_status:transfer_limit(),
+    print_handoff_limit(Status).
+
+show_handoff_limit(Node) ->
+    Status = riak_core_status:transfer_limit(Node),
+    print_handoff_limit(Status).
+
+show_rpc_handoff_limit() ->
+    Status = riak_core_status:rpc_transfer_limit(),
+    print_handoff_limit(Status).
+
+show_rpc_handoff_limit(Node) ->
+    Status = riak_core_status:rpc_transfer_limit(Node),
+    print_handoff_limit(Status).
+
+%% This function should only be called by riak_core_console_manager callbacks
+set_transfer_limit(["transfer_limit"], LimitStr, Flags) ->
+    Limit = list_to_integer(LimitStr),
+    F = fun lists:keyfind/3,
+    case {F(node, 1, Flags), F(all, 1, Flags)} of
+        {false, false} ->
+            set_concurrency(Limit),
+            io:format("Set transfer limit for ~p to ~b~n", [node(), Limit]);
+        _ ->
+            set_handoff_limit([Limit], Flags)
+    end.
+
+set_handoff_limit([Limit], Flags) ->
+    case lists:keyfind(node, 1, Flags) of
+        {node, Node} ->
+            set_node_handoff_limit(Node, Limit);
+        false->
+            set_handoff_limit(Limit)
+    end.
+
+set_handoff_limit(Limit) ->
+    io:format("Setting transfer limit to ~b across the cluster~n", [Limit]),
+    {_, Down} = riak_core_util:rpc_every_member_ann(?MODULE,
+                                                    set_concurrency,
+                                                    [Limit], 5000),
+    (Down == []) orelse io:format("Failed to set limit for: ~p~n", [Down]),
+    ok.
+
+set_node_handoff_limit(Node, Limit) ->
+    case riak_core_util:safe_rpc(Node, ?MODULE, set_concurrency, [Limit]) of
+        {badrpc, _} ->
+            io:format("Failed to set transfer limit for ~p~n", [Node]);
+        _ ->
+            io:format("Set transfer limit for ~p to ~b~n",
+                      [Node, Limit])
+    end,
+    ok.
+
+print_handoff_limit(Status) ->
+    Output = riak_core_console_writer:write(Status),
+    io:format("~s", [Output]),
+    ok.
 
 %%%===================================================================
 %%% Tests

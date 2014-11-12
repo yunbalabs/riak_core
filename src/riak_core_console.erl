@@ -19,8 +19,6 @@
 %% -------------------------------------------------------------------
 
 -module(riak_core_console).
--export([command/1,
-         register_handoff_commands/0]).
 
 %% Legacy exports - unless needed by other modules, only expose functionality via command/1
 -export([member_status/1, ring_status/1, print_member_status/2,
@@ -35,114 +33,12 @@
          security_enable/1, security_disable/1, security_status/1, ciphers/1,
 	 stat_show/1, stat_info/1, stat_enable/1, stat_disable/1, stat_reset/1]).
 
-register_handoff_commands() ->
-    Script = "riak-admin",
-    Cmd = "handoff",
-    SubCmd = "limit",
-    Actions = [{"set", fun set_handoff_limit/2,
-                [fun list_to_non_neg_int/1],
-                "Set the handoff concurrency limit."},
-               {"show", fun show_handoff_limit/2, [],
-                "Show the handoff concurrency limit."}],
-    Flags = [{"node", "n", fun list_to_atom/1,
-              "The node to apply the operation on. If not supplied,"++
-              "operation will be applied to all nodes"},
-             {"force-rpc", "f", undefined,
-              "Force status operations to send a message to each node"++
-              "in the cluster instead of using cluster metadata"++
-              "WARNING: This may be an expensive operation"}],
-    riak_core_console_manager:register_command(Script, Cmd, SubCmd, Actions,
-        Flags).
+%% New CLI API
+-export([command/1]).
 
--spec command([string()]) -> ok | error.
-command([Script, Cmd, SubCmd | Args]) ->
-    riak_core_console_manager:run(Script, Cmd, SubCmd, Args).
-
-%% @doc The following functions in this section are new commands intended to be
-%% visible in riak-admin transfer X commands. They are detailed in this RFC:
-%% https://docs.google.com/a/basho.com/document/d/1Qjbj6p4cppAxBkwp5yAnChVnBt8-J7HQXDKF879QaLQ
-%% Eventually they will replace the current riak-admin transfers command, but
-%% for now they are only accessible from the erlang shell.
-%% ============================================================================
-show_handoff_limit([], Flags) ->
-    Node = lists:keyfind(node, 1, Flags),
-    Force = lists:keyfind(force, 1, Flags),
-    case {Node, Force} of
-    {false, false} ->
-        show_handoff_limit();
-    {_, false} ->
-        show_handoff_limit(Node);
-    {false, force} ->
-        show_rpc_handoff_limit();
-    {_, force} ->
-        show_rpc_handoff_limit(Node)
-    end.
-
-show_handoff_limit() ->
-    Status = riak_core_status:transfer_limit(),
-    print_handoff_limit(Status).
-
-show_handoff_limit(Node) ->
-    Status = riak_core_status:transfer_limit(Node),
-    print_handoff_limit(Status).
-
-show_rpc_handoff_limit() ->
-    Status = riak_core_status:rpc_transfer_limit(),
-    print_handoff_limit(Status).
-
-show_rpc_handoff_limit(Node) ->
-    Status = riak_core_status:rpc_transfer_limit(Node),
-    print_handoff_limit(Status).
-
-set_handoff_limit([Limit], Flags) ->
-    case lists:keyfind(node, 1, Flags) of
-        {node, Node} ->
-            set_node_handoff_limit(Node, Limit);
-        false->
-            set_handoff_limit(Limit)
-    end.
-
-set_handoff_limit(Limit) ->
-    io:format("Setting transfer limit to ~b across the cluster~n", [Limit]),
-    {_, Down} = riak_core_util:rpc_every_member_ann(riak_core_handoff_manager,
-                            set_concurrency,
-                            [Limit], 5000),
-    (Down == []) orelse io:format("Failed to set limit for: ~p~n", [Down]),
-    ok.
-
-set_node_handoff_limit(Node, Limit) ->
-    case riak_core_util:safe_rpc(Node, riak_core_handoff_manager,
-                                 set_concurrency, [Limit]) of
-        {badrpc, _} ->
-            io:format("Failed to set transfer limit for ~p~n", [Node]);
-        _ ->
-            io:format("Set transfer limit for ~p to ~b~n",
-                      [Node, Limit])
-    end,
-    ok.
-
-print_handoff_limit(Status) ->
-    Output = riak_core_console_writer:write(Status),
-    io:format("~s", [Output]),
-    ok.
-
-%% We don't know where this is being parsed from. It could be a flag or argument
-%% value.
-list_to_non_neg_int(Val0) ->
-    Err = {error, {invalid_value, Val0}},
-    try
-        Val = list_to_integer(Val0),
-        case Val >= 0 of
-            true ->
-                Val;
-            false ->
-                Err
-        end
-    catch error:badarg ->
-        Err
-    end.
-
-%% ============================================================================
+-spec command([string()]) -> ok.
+command(Cmd) ->
+    riak_core_console_manager:run(Cmd).
 
 %% @doc Return for a given ring and node, percentage currently owned and
 %% anticipated after the transitions have been completed.
@@ -906,7 +802,7 @@ transfer_limit([LimitStr]) ->
             io:format("Invalid limit: ~s~n", [LimitStr]),
             error;
         Limit ->
-            set_handoff_limit(Limit)
+            riak_core_handoff_manager:set_handoff_limit(Limit)
     end;
 
 transfer_limit([NodeStr, LimitStr]) ->
@@ -916,7 +812,7 @@ transfer_limit([NodeStr, LimitStr]) ->
             io:format("Invalid limit: ~s~n", [LimitStr]),
             error;
         Limit ->
-            set_node_handoff_limit(Node, Limit)
+            riak_core_handoff_manager:set_node_handoff_limit(Node, Limit)
     end.
 
 check_limit(Str) ->

@@ -12,5 +12,4 @@ start_link() ->
     supervisor:start_link({local, ?MODULE}, ?MODULE, []).
 
 init([]) ->
-    ets:new(riak_core_console_specs, [public, named_table]),
     {ok, {{one_for_one, 5, 10}, [?CHILD(riak_core_console_manager, worker)]}}.

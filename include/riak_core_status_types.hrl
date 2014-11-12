@@ -10,10 +10,11 @@
 %% is unlabeled data and is only contained inside a table.
 -type row() :: [any()].
 -type rows() :: [row()].
-%% A list of the same type of data. It's really just a labelled list. 
+%% A list of the same type of data. It's really just a labelled list.
 -type column() :: {column, iolist(), [iolist()]}.
 -type table() :: {table, schema(), rows()} | {table, [column()]}.
 -type alert() :: {alert, [column() | table() | text()]}.
 -type ratio() :: {ratio, integer(), pos_integer() | neg_integer()}.
--type elem() :: text() | schema() | row() | column() | table() | alert() | ratio() | value.
+-type elem() :: text() | schema() | row() | column() | table() | alert() |
+ratio() | value().
 -type status() :: [elem()].
