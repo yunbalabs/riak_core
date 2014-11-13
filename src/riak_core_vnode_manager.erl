@@ -276,45 +276,9 @@ handle_call(get_tab, _From, State) ->
 
 handle_call({repair, Service, {Mod,Partition}=ModPartition, FilterModFun},
             _From, #state{repairs=Repairs}=State) ->
-
     case get_repair(ModPartition, Repairs) of
         none ->
-            {ok, Ring} = riak_core_ring_manager:get_my_ring(),
-            Pairs = repair_pairs(Ring, Partition),
-            UpNodes = riak_core_node_watcher:nodes(Service),
-
-            case riak_core_ring:pending_changes(Ring) of
-                    [] ->
-                        case check_up(Pairs, UpNodes) of
-                            true ->
-                                {MOP,_} = MinusOne = get_minus_one(Pairs),
-                                {POP,_} = PlusOne = get_plus_one(Pairs),
-                                riak_core_handoff_manager:xfer(MinusOne,
-                                                               ModPartition,
-                                                               FilterModFun),
-                                riak_core_handoff_manager:xfer(PlusOne,
-                                                               ModPartition,
-                                                               FilterModFun),
-                                MOXStatus = #xfer_status{status=pending,
-                                                         mod_src_target={Mod, MOP, Partition}},
-                                POXStatus = #xfer_status{status=pending,
-                                                         mod_src_target={Mod, POP, Partition}},
-
-                                Repair = #repair{mod_partition=ModPartition,
-                                                 filter_mod_fun=FilterModFun,
-                                                 pairs=Pairs,
-                                                 minus_one_xfer=MOXStatus,
-                                                 plus_one_xfer=POXStatus},
-                                Repairs2 = Repairs ++ [Repair],
-                                State2 = State#state{repairs=Repairs2},
-                                lager:debug("add repair ~p", [ModPartition]),
-                                {reply, {ok, Pairs}, State2};
-                            {false, Down} ->
-                                {reply, {down, Down}, State}
-                        end;
-                    _ ->
-                        {reply, ownership_change_in_progress, State}
-                end;
+            maybe_create_repair(Partition, Service, ModPartition, FilterModFun, Mod, Repairs, State);
         Repair ->
             Pairs = Repair#repair.pairs,
             {reply, {ok, Pairs}, State}
@@ -365,6 +329,45 @@ handle_call({xfer_complete, ModSrcTgt}, _From, State) ->
 
 handle_call(_, _From, State) ->
     {reply, ok, State}.
+
+maybe_create_repair(Partition, Service, ModPartition, FilterModFun, Mod, Repairs, State) ->
+    {ok, Ring} = riak_core_ring_manager:get_my_ring(),
+    case riak_core_ring:pending_changes(Ring) of
+        [] ->
+            UpNodes = riak_core_node_watcher:nodes(Service),
+            Pairs = repair_pairs(Ring, Partition),
+            case check_up(Pairs, UpNodes) of
+                true ->
+                    create_repair(Pairs, ModPartition, FilterModFun, Mod, Partition, Repairs, State);
+                {false, Down} ->
+                    {reply, {down, Down}, State}
+            end;
+        _ ->
+            {reply, ownership_change_in_progress, State}
+    end.
+
+create_repair(Pairs, ModPartition, FilterModFun, Mod, Partition, Repairs, State) ->
+    {MOP, _} = MinusOne = get_minus_one(Pairs),
+    {POP, _} = PlusOne = get_plus_one(Pairs),
+    riak_core_handoff_manager:xfer(MinusOne,
+                                   ModPartition,
+                                   FilterModFun),
+    riak_core_handoff_manager:xfer(PlusOne,
+                                   ModPartition,
+                                   FilterModFun),
+    MOXStatus = #xfer_status{status = pending,
+                             mod_src_target = {Mod, MOP, Partition}},
+    POXStatus = #xfer_status{status = pending,
+                             mod_src_target = {Mod, POP, Partition}},
+    Repair = #repair{mod_partition = ModPartition,
+                     filter_mod_fun = FilterModFun,
+                     pairs = Pairs,
+                     minus_one_xfer = MOXStatus,
+                     plus_one_xfer = POXStatus},
+    Repairs2 = Repairs ++ [Repair],
+    State2 = State#state{repairs = Repairs2},
+    lager:debug("add repair ~p", [ModPartition]),
+    {reply, {ok, Pairs}, State2}.
 
 %% @private
 handle_cast({Partition, Mod, start_vnode}, State) ->
@@ -575,7 +578,7 @@ get_vnode(IdxList, Mod, State) ->
              no_match -> Idx;
              Pid      -> {Idx, Pid}
          end
-        || Idx <- IdxList],
+         || Idx <- IdxList],
     {NotStarted, Started} = lists:partition(fun erlang:is_integer/1, Initial),
     StartFun =
         fun(Idx) ->
@@ -583,25 +586,25 @@ get_vnode(IdxList, Mod, State) ->
                  lager:debug("Will start VNode for partition ~p", [Idx]),
                  {ok, Pid} =
                      riak_core_vnode_sup:start_vnode(Mod, Idx, ForwardTo),
-		 register_vnode_stats(Mod, Idx, Pid),
+                 register_vnode_stats(Mod, Idx, Pid),
                  lager:debug("Started VNode, waiting for initialization to complete ~p, ~p ", [Pid, Idx]),
                  ok = riak_core_vnode:wait_for_init(Pid),
                  lager:debug("VNode initialization ready ~p, ~p", [Pid, Idx]),
                  {Idx, Pid}
         end,
-   MaxStart = app_helper:get_env(riak_core, vnode_parallel_start,
+    MaxStart = app_helper:get_env(riak_core, vnode_parallel_start,
                                   ?DEFAULT_VNODE_ROLLING_START),
     Pairs = Started ++ riak_core_util:pmap(StartFun, NotStarted, MaxStart),
-    % Return Pids in same order as input
+                                                % Return Pids in same order as input
     PairsDict = dict:from_list(Pairs),
     _ = [begin
-         Pid = dict:fetch(Idx, PairsDict),
-         MonRef = erlang:monitor(process, Pid),
-         IdxRec = #idxrec{key={Idx,Mod},idx=Idx,mod=Mod,pid=Pid,
-                          monref=MonRef},
-         MonRec = #monrec{monref=MonRef, key={Idx,Mod}},
-         add_vnode_rec([IdxRec, MonRec], State)
-     end || Idx <- NotStarted],
+             Pid = dict:fetch(Idx, PairsDict),
+             MonRef = erlang:monitor(process, Pid),
+             IdxRec = #idxrec{key={Idx,Mod},idx=Idx,mod=Mod,pid=Pid,
+                              monref=MonRef},
+             MonRec = #monrec{monref=MonRef, key={Idx,Mod}},
+             add_vnode_rec([IdxRec, MonRec], State)
+         end || Idx <- NotStarted],
     [ dict:fetch(Idx, PairsDict) || Idx <- IdxList].
 
 
