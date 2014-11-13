@@ -29,7 +29,7 @@
          print_users/1, print_user/1, print_sources/1,
          print_groups/1, print_group/1, print_grants/1,
          security_enable/1, security_disable/1, security_status/1, ciphers/1,
-	 stat_show/1, stat_showall/1, stat_info/1, stat_enable/1, stat_disable/1,
+	 stat_show/1, stat_showall/1, stat_info/1, stat_enable/1, stat_disable/1, stat_reset/1,
 	 stat_reporter/1, stat_subscribe/1, stat_unsubscribe/1]).
 
 %% @doc Return for a given ring and node, percentage currently owned and
@@ -1154,29 +1154,233 @@ stat_showall(Arg) ->
 find_entries(Arg) ->
     find_entries(Arg, enabled).
 
-find_entries(Arg, Status) ->
-    Patterns = lists:flatten([parse_stat_entry(S, Status) || S <- Arg]),
+find_entries(Arg, Status0) ->
+    lists:map(
+      fun(A) ->
+	      {S, Type, Status, DPs} = type_status_and_dps(A, Status0),
+	      case S of
+		  "[" ++ _ ->
+		      {find_entries_1(S, Type, Status), DPs};
+		  _ ->
+		      case legacy_search(S, Type, Status) of
+			  false ->
+			      {find_entries_1(S, Type, Status), DPs};
+			  Found ->
+			      {Found, DPs}
+		      end
+	      end
+      end, Arg).
+
+type_status_and_dps(S, Status0) ->
+    [S1|Rest] = re:split(S, "/"),
+    {Type, Status, DPs} = type_status_and_dps(Rest, '_', Status0, default),
+    {S1, Type, Status, DPs}.
+
+type_status_and_dps([<<"type=", T/binary>>|Rest], _Type, Status, DPs) ->
+    NewType = case T of
+		  <<"*">> -> '_';
+		  _ ->
+		      try binary_to_existing_atom(T, latin1)
+		      catch error:_ -> T
+		      end
+	      end,
+    type_status_and_dps(Rest, NewType, Status, DPs);
+type_status_and_dps([<<"status=", St/binary>>|Rest], Type, _Status, DPs) ->
+    NewStatus = case St of
+		    <<"enabled">>  -> enabled;
+		    <<"disabled">> -> disabled;
+		    <<"*">>        -> '_'
+		end,
+    type_status_and_dps(Rest, Type, NewStatus, DPs);
+type_status_and_dps([DPsBin|Rest], Type, Status, DPs) ->
+    NewDPs = merge([binary_to_existing_atom(D,latin1)
+		    || D <- re:split(DPsBin, ",")], DPs),
+    type_status_and_dps(Rest, Type, Status, NewDPs);
+type_status_and_dps([], Type, Status, DPs) ->
+    {Type, Status, DPs}.
+
+merge([_|_] = DPs, default) ->
+    DPs;
+merge([H|T], DPs) ->
+    case lists:member(H, DPs) of
+	true  -> merge(T, DPs);
+	false -> merge(T, DPs ++ [H])
+    end;
+merge([], DPs) ->
+    DPs.
+
+
+find_entries_1(S, Type, Status) ->
+    Patterns = lists:flatten([parse_stat_entry(S, Type, Status)]),
     exometer:select(Patterns).
 
+
+legacy_search(S, Type, Status) ->
+    case re:run(S, "\\.", []) of
+	{match,_} ->
+	    false;
+	nomatch ->
+	    _ = riak_kv_wm_stats:legacy_stat_map(),  % ensure module loaded
+	    %% Re0 = re:replace(
+	    %% 	    re:replace(S, <<"\\*\\*">>, <<"\\.\\*">>,
+	    %% 		       [{return, binary}]),
+	    %% 	    <<"\\*">>, <<"\\[\\^_\\]\\*">>, [{return,binary}]),
+	    Re = <<"^", (make_re(S))/binary, "$">>,
+	    [{S, legacy_search_1(Re, Type, Status)}]
+    end.
+
+make_re(S) ->
+    repl(split_pattern(S, [])).
+
+
+repl([single|T]) ->
+    <<"[^_]*", (repl(T))/binary>>;
+repl([double|T]) ->
+    <<".*", (repl(T))/binary>>;
+repl([H|T]) ->
+    <<H/binary, (repl(T))/binary>>;
+repl([]) ->
+    <<>>.
+
+
+split_pattern(<<>>, Acc) ->
+    lists:reverse(Acc);
+split_pattern(<<"**", T/binary>>, Acc) ->
+    split_pattern(T, [double|Acc]);
+split_pattern(<<"*", T/binary>>, Acc) ->
+    split_pattern(T, [single|Acc]);
+split_pattern(B, Acc) ->
+    case binary:match(B, <<"*">>) of
+	{Pos,_} ->
+	    <<Bef:Pos/binary, Rest/binary>> = B,
+	    split_pattern(Rest, [Bef|Acc]);
+	nomatch ->
+	    lists:reverse([B|Acc])
+    end.
+
+legacy_search_1(N, Type, Status) ->
+    P = riak_core_stat:prefix(),
+    lists:foldr(
+      fun({Entry, DPs}, Acc) ->
+	      case match_dps(DPs, N) of
+		  [] -> Acc;
+		  [_|_] = DPs1 ->
+		      DPnames = [D || {D,_} <- DPs1],
+		      Fullname = [P|Entry],
+		      case match_type(Fullname, Type) of
+			  true ->
+			      case exometer:get_value(Fullname, DPnames) of
+				  {ok, Values} when is_list(Values) ->
+				      [{Fullname, zip_values(Values, DPs1)}
+				       | Acc];
+				  {ok, disabled} when Status=='_';
+						      Status==disabled ->
+				      [{Fullname, zip_disabled(DPs1)} | Acc];
+				  _ ->
+				      Acc
+			      end;
+			  false ->
+			      Acc
+		      end;
+		  false ->
+		      Acc
+	      end
+      end, [], riak_kv_wm_stats:legacy_stat_map()).
+
+match_type(_, '_') ->
+    true;
+match_type(Name, T) ->
+    T == exometer:info(Name, type).
+
+zip_values([{D,V}|T], DPs) ->
+    {_,N} = lists:keyfind(D, 1, DPs),
+    [{D,V,N}|zip_values(T, DPs)];
+zip_values([], _) ->
+    [].
+
+zip_disabled(DPs) ->
+    [{D,disabled,N} || {D,N} <- DPs].
+
+match_dps(DPs, N) when is_atom(N) ->
+    case lists:keyfind(N, 2, DPs) of
+	{D, LN} -> [{D, LN}];
+	false  -> []
+    end;
+match_dps(DPs, Pat) when is_binary(Pat) ->
+    [{D, N} || {D, N} <- DPs,
+	       match_dp(N, Pat)].
+
+match_dp(DP, Re) ->
+    case re:run(atom_to_binary(DP,latin1), Re) of
+	{match, _} ->
+	    true;
+	nomatch ->
+	    false
+    end.
+
+print_stats([]) ->
+    io:fwrite("No matching stats~n", []);
 print_stats(Entries) ->
     io:fwrite(
-      [io_lib:fwrite("~p: ~p~n", [E, get_value(E, Status)]) || {E, _T, Status} <- Entries]).
+      lists:map(
+	fun({[{LP, []}], _}) ->
+		io_lib:fwrite(
+		  "== ~s (Legacy pattern): No matching stats ==~n", [LP]);
+	   ({[{LP, Matches}], _}) ->
+		[io_lib:fwrite("== ~s (Legacy pattern): ==~n", [LP]) |
+		 [[io_lib:fwrite("~p: ~p (~p/~p)~n", [N, V, E, DP])
+		   || {DP,V,N} <- DPs] || {E, DPs} <- Matches]];
+	   ({[], _}) ->
+		io_lib:fwrite("No matching stats~n", []);
+	   ({Entries1, DPs}) ->
+		[io_lib:fwrite("~p: ~p~n", [E, get_value(E, Status, DPs)])
+		 || {E, _, Status} <- Entries1]
+	end, Entries)).
 
-get_value(_, disabled) ->
+get_value(_, disabled, _) ->
     disabled;
-get_value(E, _Status) ->
-    case exometer:get_value(E) of
+get_value(E, _Status, DPs) ->
+    case exometer:get_value(E, DPs) of
 	{ok, V} -> V;
 	{error,_} -> unavailable
     end.
 
+stat_change(Arg, ToStatus) ->
+    io:fwrite(
+      lists:map(
+	fun({[{LP, []}], _}) ->
+		io_lib:fwrite(
+		  "== ~s (Legacy pattern): No matching stats ==~n", [LP]);
+	   ({[{LP, Matches}], _}) ->
+		[io_lib:fwrite("== ~s (Legacy pattern): ==~n", [LP]) |
+		 [io_lib:fwrite("~p: ~p~n", [N, change_status(N, ToStatus)])
+		   || {N, _} <- Matches]];
+	   ({[], _}) ->
+		io_lib:fwrite("No matching stats~n", []);
+	   ({Entries, _}) ->
+		[io_lib:fwrite("~p: ~p~n", [N, change_status(N, ToStatus)])
+		 || {N, _, _} <- Entries]
+	end, find_entries(Arg, '_'))).
+
 stat_enable(Arg) ->
-    [io:fwrite("~p: ~p~n", [N, change_status(N, enabled)])
-     || {N, _, _} <- find_entries(Arg, disabled)].
+    stat_change(Arg, enabled).
 
 stat_disable(Arg) ->
-    [io:fwrite("~p: ~p~n", [N, change_status(N, disabled)])
-     || {N, _, _} <- find_entries(Arg, enabled)].
+    stat_change(Arg, disabled).
+
+stat_reset(Arg) ->
+    io:fwrite(
+      lists:map(
+	fun({LP, []}) ->
+		io_lib:fwrite(
+		  "== ~s (Legacy pattern): No matching stats ==~n", [LP]);
+	   ({LP, Matches}) ->
+		[io_lib:fwrite("== ~s (Legacy pattern): ==~n", [LP]) |
+		 [io_lib:fwrite("~p: ~p~n", [N, exometer:reset(N)])
+		   || {N, _} <- Matches]];
+	   ({N, _, _}) ->
+		io:fwrite("~p: ~p~n", [N, exometer:reset(N)])
+	end, find_entries(Arg, enabled))).
 
 stat_reporter(Arg) ->
     try stat_reporter_int(split_command(Arg))
@@ -1276,7 +1480,23 @@ pick_info_attrs(Arg) ->
             Other
     end.
 
-print_info({N, _Type, _Status}, [A|Attrs]) ->
+print_info({[{LP, []}], _}, _) ->
+    io:fwrite("== ~s (Legacy pattern): No matching stats ==~n", [LP]);
+print_info({[{LP, Matches}], _}, Attrs) ->
+    io:fwrite("== ~s (Legacy pattern): ==~n", [LP]),
+     lists:foreach(
+       fun({N, _}) ->
+	       print_info_1(N, Attrs)
+       end, Matches);
+print_info({[], _}, _) ->
+    io_lib:fwrite("No matching stats~n", []);
+print_info({Entries, _}, Attrs) ->
+    lists:foreach(
+      fun({N,_,_}) ->
+	      print_info_1(N, Attrs)
+      end, Entries).
+
+print_info_1(N, [A|Attrs]) ->
     Hdr = lists:flatten(io_lib:fwrite("~p: ", [N])),
     Pad = lists:duplicate(length(Hdr), $\s),
     Info = exometer:info(N),
@@ -1290,11 +1510,14 @@ print_info({N, _Type, _Status}, [A|Attrs]) ->
 split_arg([Str]) ->
     re:split(Str, "\\s", [{return,list}]).
 
-parse_stat_entry([], Status) ->
-    {{[riak_core_stat:prefix() | '_'], '_', '_'}, [{'=:=','$status',Status}], ['$_']};
-parse_stat_entry("*", Status) ->
-    parse_stat_entry([], Status);
-parse_stat_entry("[" ++ _ = Expr, _Status) ->
+parse_stat_entry(Parts, Status) ->
+    parse_stat_entry(Parts, '_', Status).
+
+parse_stat_entry([], Type, Status) ->
+    {{[riak_core_stat:prefix() | '_'], Type, '_'}, [{'=:=','$status',Status}], ['$_']};
+parse_stat_entry("*", Type, Status) ->
+    parse_stat_entry([], Type, Status);
+parse_stat_entry("[" ++ _ = Expr, _Type, _Status) ->
     case erl_scan:string(ensure_trailing_dot(Expr)) of
 	{ok, Toks, _} ->
 	    case erl_parse:parse_exprs(Toks) of
@@ -1308,13 +1531,15 @@ parse_stat_entry("[" ++ _ = Expr, _Status) ->
 	    io:fwrite("(Scan error for ~p: ~p~n", [Expr, ScanErr]),
 	    []
     end;
-parse_stat_entry(Str, Status) when Status==enabled; Status==disabled ->
+parse_stat_entry(Str, Type, Status) when Status==enabled; Status==disabled ->
     Parts = re:split(Str, "\\.", [{return,list}]),
-    {{replace_parts(Parts),'_',Status}, [], ['$_']};
-parse_stat_entry(Str, '_') ->
+    Heads = replace_parts(Parts),
+    [{{H,Type,Status}, [], ['$_']} || H <- Heads];
+parse_stat_entry(Str, Type, '_') ->
     Parts = re:split(Str, "\\.", [{return,list}]),
-    {{replace_parts(Parts),'_','_'}, [], ['$_']};
-parse_stat_entry(_, Status) ->
+    Heads = replace_parts(Parts),
+    [{{H,Type,'_'}, [], ['$_']} || H <- Heads];
+parse_stat_entry(_, _, Status) ->
     io:fwrite("(Illegal status: ~p~n", [Status]).
 
 
@@ -1339,26 +1564,69 @@ partial_eval({op,_,'++',L1,L2}) ->
 partial_eval(X) ->
     erl_parse:normalise(X).
 
-replace_parts([H|T]) ->
-    R = case H of
-	    "*" -> '_';
-	    "'" ++ _ ->
-		case erl_scan:string(H) of
-		    {ok, [{atom, _, A}], _} ->
-			A;
-		    Error ->
-			error(Error)
-		end;
-	    [C|_] when C >= $0, C =< $9 ->
-		try list_to_integer(H)
-		catch
-		    error:_ -> list_to_atom(H)
-		end;
-	    _ -> list_to_atom(H)
-	end,
+replace_parts(Parts) ->
+    case split("**", Parts) of
+	{_, []} ->
+	    [replace_parts_1(Parts)];
+	{Before, After} ->
+	    Head = replace_parts_1(Before),
+	    Tail = replace_parts_1(After),
+	    [Head ++ Pad ++ Tail || Pad <- pads()]
+    end.
+
+pads() ->
+    [['_'],
+     ['_','_'],
+     ['_','_','_'],
+     ['_','_','_','_'],
+     ['_','_','_','_','_'],
+     ['_','_','_','_','_','_'],
+     ['_','_','_','_','_','_','_'],
+     ['_','_','_','_','_','_','_','_'],
+     ['_','_','_','_','_','_','_','_','_'],
+     ['_','_','_','_','_','_','_','_','_','_'],
+     ['_','_','_','_','_','_','_','_','_','_','_'],
+     ['_','_','_','_','_','_','_','_','_','_','_','_'],
+     ['_','_','_','_','_','_','_','_','_','_','_','_','_'],
+     ['_','_','_','_','_','_','_','_','_','_','_','_','_','_'],
+     ['_','_','_','_','_','_','_','_','_','_','_','_','_','_','_'],
+     ['_','_','_','_','_','_','_','_','_','_','_','_','_','_','_','_']].
+
+split(X, L) ->
+    split(L, X, []).
+
+split([H|T], H, Acc) ->
+    {lists:reverse(Acc), T};
+split([H|T], X, Acc) ->
+    split(T, X, [H|Acc]);
+split([], _, Acc) ->
+    {lists:reverse(Acc), []}.
+
+
+
+replace_parts_1([H|T]) ->
+    R = replace_part(H),
     case T of
 	["**"] -> [R] ++ '_';
-	_ -> [R|replace_parts(T)]
+	_ -> [R|replace_parts_1(T)]
     end;
-replace_parts([]) ->
+replace_parts_1([]) ->
     [].
+
+replace_part(H) ->
+    case H of
+	"*" -> '_';
+	"'" ++ _ ->
+	    case erl_scan:string(H) of
+		{ok, [{atom, _, A}], _} ->
+		    A;
+		Error ->
+		    error(Error)
+	    end;
+	[C|_] when C >= $0, C =< $9 ->
+	    try list_to_integer(H)
+	    catch
+		error:_ -> list_to_atom(H)
+	    end;
+	_ -> list_to_atom(H)
+    end.
