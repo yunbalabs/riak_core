@@ -47,10 +47,10 @@ rt(I) ->
     binary_to_list(iolist_to_binary(I)).
 
 format_summary(S) ->
-    format_summary(S, " ~B / ~B / ~B ").
+    format_summary(S, default, " ~B / ~B / ~B ").
 
 format_summary(Summary, Fields, OutputFormat) ->
-    [ format_summary1(orddict:fetch(T, Summary), Fields, OutputFormat) || 
+    [ rt(format_summary1(orddict:fetch(T, Summary), Fields, OutputFormat)) || 
         T <- [ownership_transfer, hinted_handoff, resize_transfer, repair] ].
 
 % The contents of Data 
@@ -109,6 +109,7 @@ build_summary_tuple(Data, Total) ->
     {C, O, T, Data}.
 
 
+%% TODO: collapse into less functions where functional heads match i.e., ownership and resize
 -spec outstanding_count(ho_type(), riak_core_ring:riak_core_ring()) -> [{node(), pos_integer()}].
 outstanding_count(ownership_transfer, Ring) ->
     OwnershipChanges = riak_core_ring:pending_changes(Ring),
@@ -141,9 +142,13 @@ outstanding_count(resize_transfer, Ring) ->
                    (_, Acc) ->
                         Acc
                 end, [], Resizes);
-outstanding_count(repair, Ring) ->
-    %% XXX FIXME (mallen): implement this but how? For now just return 0 to bikeshed output format
-    [{Node, 0} || Node <- riak_core_ring:ready_members(Ring)].
+outstanding_count(repair, _Ring) ->
+    %% Output should [{Node, Count}]
+    {Repairs, _Down} = riak_core_util:rpc_every_member_ann(riak_core_vnode_manager, all_repairs, [], 5000),
+    lists:foldl(fun count_repairs/2, [], Repairs).
+
+count_repairs({Node, RepairRecords}, Acc) ->
+    [ {Node, length(RepairRecords)} | Acc ].
 
 ongoing_transfers_summary() ->
     %% TODO (jwest): have option to use cluster metadata instead of this rpc
