@@ -19,20 +19,48 @@
 %% -------------------------------------------------------------------
 -module(riak_core_handoff_status).
 
--compile(export_all).
 -include("riak_core_handoff.hrl").
 
+-export([print_handoff_summary/0,
+         print_handoff_summary/1
+        ]).
+
 print_handoff_summary() ->
-    Status = transfer_summary(),
+    print_handoff_summary(local).
+
+print_handoff_summary(local) ->
+    print_handoff_summary_internal(fun collect_from_local/3);
+
+print_handoff_summary(all) ->
+    print_handoff_summary_internal(fun collect_from_all/3);
+
+print_handoff_summary(Node) ->
+    CollectFun = fun(M, F, A) -> collect_from_other(Node, M, F, A) end,
+    print_handoff_summary_internal(CollectFun).
+
+print_handoff_summary_internal(CollectFun) ->
+    Status = transfer_summary(CollectFun),
     Output = riak_core_console_writer:write(Status),
     io:format("~s", [Output]).
 
+collect_from_other(Node, M, F, A) ->
+    case riak_core_util:safe_rpc(Node, M, F, A, 5000) of
+        {badrpc, _} -> {[], [Node]};
+        Result -> {[{Node, Result}], []}
+    end.
+
+collect_from_local(M, F, A) ->
+    {[{node(), apply(M, F, A)}], []}.
+
+collect_from_all(M, F, A) ->
+    riak_core_util:rpc_every_member_ann(M, F, A, 5000).
+
 %% TODO (jwest): remember to take into account different vnode mods
-transfer_summary() ->
+transfer_summary(CollectFun) ->
     %% TODO (jwest): get ring from claimant?
     {ok, Ring} = riak_core_ring_manager:get_my_ring(),
-    {OngoingSummary, DownNodes} = ongoing_transfers_summary(),
-    OutstandingSummary = outstanding_transfers_summary(Ring),
+    {OngoingSummary, DownNodes} = ongoing_transfers_summary(CollectFun),
+    OutstandingSummary = outstanding_transfers_summary(Ring, CollectFun),
     {Summary, DownNodes} = build_transfer_summary(OngoingSummary, OutstandingSummary, DownNodes),
 
     %% TODO (jwest): this is better in a macro
@@ -40,13 +68,20 @@ transfer_summary() ->
     Schema = ["Node", "Ownership", "Fallback", "Resize", "Repair"],
     Header = {text, "Key: Ongoing / Outstanding / Total"},
     Table = {table, Schema,
-             [ [ format_node_name(Node, DownNodes) | format_summary(S) ]
+             [ [ format_node_name(Node) | format_summary(S) ]
                || {Node, S} <- orddict:to_list(Summary) ]},
-    [Header, Table].
+    case DownNodes of
+        [] ->
+            [Header, Table];
+        _ ->
+            NodesDown = {alert, [{column, "(unreachable)", DownNodes}]},
+            [Header, Table, NodesDown]
+    end.
 
-outstanding_transfers_summary(Ring) ->
-    [ outstanding_count(T, Ring)
-        || T <- [ownership_transfer, hinted_handoff, resize_transfer, repair] ].
+
+outstanding_transfers_summary(Ring, CollectFun) ->
+    [ outstanding_count(T, Ring, CollectFun)
+      || T <- [ownership_transfer, hinted_handoff, resize_transfer, repair] ].
 
 rt(I) ->
     binary_to_list(iolist_to_binary(I)).
@@ -74,14 +109,9 @@ format_summary(Summary, Fields, OutputFormat) ->
 format_summary1({On, Out, Total, _Data}, default, OutputFormat) ->
     io_lib:format(OutputFormat, [On, Out, Total]).
 
--spec format_node_name(node(), [node()]) -> string().
-format_node_name(Node, DownNodes) when is_atom(Node) ->
-    case lists:member(Node, DownNodes) of
-        true  ->
-            "**" ++ atom_to_list(Node) ++ "  ";
-        false ->
-            "  " ++ atom_to_list(Node) ++ "  "
-    end.
+-spec format_node_name(node()) -> string().
+format_node_name(Node) when is_atom(Node) ->
+    "  " ++ atom_to_list(Node) ++ "  ".
 
 build_transfer_summary(OngoingSummary, OutstandingSummary, DownNodes) ->
     {orddict:map(
@@ -113,8 +143,8 @@ build_summary_tuple(Data, Total) ->
 
 
 %% TODO: collapse into less functions where functional heads match i.e., ownership and resize
--spec outstanding_count(ho_type(), riak_core_ring:riak_core_ring()) -> [{node(), pos_integer()}].
-outstanding_count(ownership_transfer, Ring) ->
+-spec outstanding_count(ho_type(), riak_core_ring:riak_core_ring(), fun()) -> [{node(), pos_integer()}].
+outstanding_count(ownership_transfer, Ring, _CollectFun) ->
     OwnershipChanges = riak_core_ring:pending_changes(Ring),
     lists:foldl(fun
                     ({_, _, '$resize', _, _}, Acc) ->
@@ -128,12 +158,17 @@ outstanding_count(ownership_transfer, Ring) ->
                     (_, Acc) ->
                        Acc
                end, [], OwnershipChanges);
-outstanding_count(hinted_handoff, Ring) ->
+outstanding_count(hinted_handoff, Ring, _CollectFun) ->
     [begin
-         {_, Sec, _} = riak_core_status:partitions(Node, Ring),
-         {Node, length(Sec)}
+         try
+             {_, Sec, _} = riak_core_status:partitions(Node, Ring),
+             {Node, length(Sec)}
+         catch _:_ ->
+                 {Node, "unknown"}
+         end
      end || Node <- riak_core_ring:ready_members(Ring)];
-outstanding_count(resize_transfer, Ring) ->
+
+outstanding_count(resize_transfer, Ring, _CollectFun) ->
     Resizes = riak_core_ring:pending_changes(Ring),
     %% FIXME: Is this even correct? vvvvv
     lists:foldl(fun({_, Source, '$resize', _, awaiting}, Acc) ->
@@ -145,24 +180,26 @@ outstanding_count(resize_transfer, Ring) ->
                    (_, Acc) ->
                         Acc
                 end, [], Resizes);
-outstanding_count(repair, _Ring) ->
+outstanding_count(repair, _Ring, CollectFun) ->
     %% Output should [{Node, Count}]
-    {Repairs, _Down} = riak_core_util:rpc_every_member_ann(riak_core_vnode_manager, all_repairs, [], 5000),
+                                                %apply(riak_core_vnode_manager, all_repairs, []),
+                                                %riak_core_util:safe_rpc(OtherNode, ...),
+    {Repairs, _Down} = CollectFun(riak_core_vnode_manager, all_repairs, []),
     lists:foldl(fun count_repairs/2, [], Repairs).
 
 count_repairs({Node, RepairRecords}, Acc) ->
     [ {Node, length(RepairRecords)} | Acc ].
 
-ongoing_transfers_summary() ->
+ongoing_transfers_summary(CollectFun) ->
     %% TODO (jwest): have option to use cluster metadata instead of this rpc
     %% TODO (jwest): deal w/ down nodes
     %%
     %% TODO (jwest): is rpc_every_member_ann chatting w/ more nodes than we need to (e.g. only valid, leaving?)
     %% mallen: rpc_every_member_ann calls multirpc_ann which gets its ring state and membership information from the
     %% local ring manager, so its view of the world will be the same as the status code
-    {Ongoing, DownNodes} = riak_core_util:rpc_every_member_ann(
+    {Ongoing, DownNodes} = CollectFun(
                              riak_core_handoff_manager, status,
-                             [{direction, outbound}], 5000),
+                             [{direction, outbound}]),
 
     Summary = lists:foldl(fun build_ongoing_node_summaries/2,
                           orddict:new(), Ongoing),
