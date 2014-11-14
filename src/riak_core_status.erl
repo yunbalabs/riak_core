@@ -229,6 +229,8 @@ rings_match(R1hash, [{N2, R2} | Rest]) ->
 
 %% Get a list of active partition numbers - regardless of vnode type
 active_partitions(Node) ->
+    %% blows up if a node is down
+    %% TODO: make a safe version
     VNodes = gen_server:call({riak_core_vnode_manager, Node}, all_vnodes, 30000),
     lists:foldl(fun({_, P, _}, Ps) ->
                         ordsets:add_element(P, Ps)
