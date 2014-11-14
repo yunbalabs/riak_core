@@ -67,15 +67,16 @@ transfer_summary(CollectFun) ->
     %% TODO (mallen): suppress empty categories?
     Schema = ["Node", "Ownership", "Fallback", "Resize", "Repair"],
     Header = {text, "Key: Ongoing / Outstanding / Total"},
+    Footer = {text, "Blanks indicate no transfers."},
     Table = {table, Schema,
              [ [ format_node_name(Node) | format_summary(S) ]
                || {Node, S} <- orddict:to_list(Summary) ]},
     case DownNodes of
         [] ->
-            [Header, Table];
+            [Header, Table, Footer];
         _ ->
             NodesDown = {alert, [{column, "(unreachable)", DownNodes}]},
-            [Header, Table, NodesDown]
+            [Header, Table, NodesDown, Footer]
     end.
 
 
@@ -105,6 +106,9 @@ format_summary(Summary, Fields, OutputFormat) ->
 %%   {start_ts, StartTS},
 %%   {sender_pid, TPid},
 %%   {stats, calc_stats(HO)}]
+
+format_summary1({0, 0, 0, _Data}, default, _OutputFormat) ->
+    "";
 
 format_summary1({On, Out, Total, _Data}, default, OutputFormat) ->
     io_lib:format(OutputFormat, [On, Out, Total]).
