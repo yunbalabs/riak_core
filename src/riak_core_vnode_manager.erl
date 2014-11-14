@@ -28,7 +28,7 @@
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
          terminate/2, code_change/3]).
 -export([all_vnodes/0, all_vnodes/1, all_vnodes_status/0,
-         force_handoffs/0, repair/3, repair_status/1, xfer_complete/2,
+         force_handoffs/0, repair/3, all_repairs/0, repair_status/1, xfer_complete/2,
          kill_repairs/1]).
 -export([all_index_pid/1, get_vnode_pid/2, start_vnode/2,
          unregister_vnode/2, unregister_vnode/3, vnode_event/4]).
@@ -111,6 +111,11 @@ repair_status({_Module, Partition}=ModPartition) ->
     {ok, Ring} = riak_core_ring_manager:get_my_ring(),
     Owner = riak_core_ring:index_owner(Ring, Partition),
     gen_server:call({?MODULE, Owner}, {repair_status, ModPartition}, ?LONG_TIMEOUT).
+
+%% @doc Get all repairs known by this manager.
+-spec all_repairs() -> repairs().
+all_repairs() ->
+    gen_server:call(?MODULE, {all_repairs}, ?LONG_TIMEOUT).
 
 %% TODO: make cast with retry on handoff sender side and handshake?
 %%
@@ -283,6 +288,9 @@ handle_call({repair, Service, {Mod,Partition}=ModPartition, FilterModFun},
             Pairs = Repair#repair.pairs,
             {reply, {ok, Pairs}, State}
     end;
+
+handle_call({all_repairs}, _From, State=#state{repairs=Repairs}) ->
+    {reply, Repairs, State};
 
 handle_call({repair_status, ModPartition}, _From, State) ->
     Repairs = State#state.repairs,
