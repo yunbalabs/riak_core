@@ -31,8 +31,9 @@ print_handoff_summary() ->
 transfer_summary() ->
     %% TODO (jwest): get ring from claimant?
     {ok, Ring} = riak_core_ring_manager:get_my_ring(),
-    {Summary, DownNodes} = build_transfer_summary(
-                             ongoing_transfers_summary(), Ring),
+    {OngoingSummary, DownNodes} = ongoing_transfers_summary(),
+    OutstandingSummary = outstanding_transfers_summary(Ring),
+    {Summary, DownNodes} = build_transfer_summary(OngoingSummary, OutstandingSummary, DownNodes),
 
     %% TODO (jwest): this is better in a macro
     %% TODO (mallen): suppress empty categories?
@@ -42,6 +43,10 @@ transfer_summary() ->
              [ [ format_node_name(Node, DownNodes) | format_summary(S) ]
                || {Node, S} <- orddict:to_list(Summary) ]},
     [Header, Table].
+
+outstanding_transfers_summary(Ring) ->
+    [ outstanding_count(T, Ring)
+        || T <- [ownership_transfer, hinted_handoff, resize_transfer, repair] ].
 
 rt(I) ->
     binary_to_list(iolist_to_binary(I)).
@@ -78,11 +83,9 @@ format_node_name(Node, DownNodes) when is_atom(Node) ->
             "  " ++ atom_to_list(Node) ++ "  "
     end.
 
-build_transfer_summary({OngoingSummary, DownNodes}, Ring) ->
-    Outstanding = [ outstanding_count(T, Ring)
-                    || T <- [ownership_transfer, hinted_handoff, resize_transfer, repair] ],
+build_transfer_summary(OngoingSummary, OutstandingSummary, DownNodes) ->
     {orddict:map(
-       fun(Node, D) -> merge_outstanding(Node, D, Outstanding) end,
+       fun(Node, D) -> merge_outstanding(Node, D, OutstandingSummary) end,
        OngoingSummary), DownNodes}.
 
 merge_outstanding(Node, Ongoing, Outstanding) ->
