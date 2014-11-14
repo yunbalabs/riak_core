@@ -33,73 +33,73 @@ transfer_summary() ->
     {ok, Ring} = riak_core_ring_manager:get_my_ring(),
     {Summary, DownNodes} = build_transfer_summary(
                              ongoing_transfers_summary(), Ring),
-                                        
+
     %% TODO (jwest): this is better in a macro
     %% TODO (mallen): suppress empty categories?
     Schema = ["Node", "Ownership", "Fallback", "Resize", "Repair"],
     Header = {text, "Key: Ongoing / Outstanding / Total"},
-    Table = {table, Schema, 
-        [ [ format_node_name(Node, DownNodes) | format_summary(S) ] 
-                                || {Node, S} <- orddict:to_list(Summary) ]},
+    Table = {table, Schema,
+             [ [ format_node_name(Node, DownNodes) | format_summary(S) ]
+               || {Node, S} <- orddict:to_list(Summary) ]},
     [Header, Table].
 
-rt(I) -> 
+rt(I) ->
     binary_to_list(iolist_to_binary(I)).
 
 format_summary(S) ->
     format_summary(S, default, " ~B / ~B / ~B ").
 
 format_summary(Summary, Fields, OutputFormat) ->
-    [ rt(format_summary1(orddict:fetch(T, Summary), Fields, OutputFormat)) || 
+    [ rt(format_summary1(orddict:fetch(T, Summary), Fields, OutputFormat)) ||
         T <- [ownership_transfer, hinted_handoff, resize_transfer, repair] ].
 
-% The contents of Data 
-% Quoting from riak_core_handoff_manager.erl #368
-%  [{mod, Mod},
-%   {src_partition, SrcP},
-%   {target_partition, TargetP},
-%   {src_node, SrcNode},
-%   {target_node, TargetNode},
-%   {direction, Dir},
-%   {status, Status},
-%   {start_ts, StartTS},
-%   {sender_pid, TPid},
-%   {stats, calc_stats(HO)}]
+%% The contents of Data
+%% Quoting from riak_core_handoff_manager.erl #368
+%%  [{mod, Mod},
+%%   {src_partition, SrcP},
+%%   {target_partition, TargetP},
+%%   {src_node, SrcNode},
+%%   {target_node, TargetNode},
+%%   {direction, Dir},
+%%   {status, Status},
+%%   {start_ts, StartTS},
+%%   {sender_pid, TPid},
+%%   {stats, calc_stats(HO)}]
 
 format_summary1({On, Out, Total, _Data}, default, OutputFormat) ->
     io_lib:format(OutputFormat, [On, Out, Total]).
-    
+
 -spec format_node_name(node(), [node()]) -> string().
 format_node_name(Node, DownNodes) when is_atom(Node) ->
     case lists:member(Node, DownNodes) of
-        true  -> 
+        true  ->
             "**" ++ atom_to_list(Node) ++ "  ";
-        false -> 
+        false ->
             "  " ++ atom_to_list(Node) ++ "  "
     end.
 
 build_transfer_summary({OngoingSummary, DownNodes}, Ring) ->
-    Outstanding = [ outstanding_count(T, Ring) 
+    Outstanding = [ outstanding_count(T, Ring)
                     || T <- [ownership_transfer, hinted_handoff, resize_transfer, repair] ],
     {orddict:map(
-       fun(Node, D) -> merge_outstanding(Node, D, Outstanding) end, 
+       fun(Node, D) -> merge_outstanding(Node, D, Outstanding) end,
        OngoingSummary), DownNodes}.
 
 merge_outstanding(Node, Ongoing, Outstanding) ->
     [O, H, Rz, Rp] = lists:map(
-        fun(L) -> proplists:get_value(Node, L, 0) end, Outstanding),
+                       fun(L) -> proplists:get_value(Node, L, 0) end, Outstanding),
     orddict:map(
-      fun(K, V) -> 
-        case K of
-            ownership_transfer -> 
-                build_summary_tuple(V, O);
-                hinted_handoff -> 
-                build_summary_tuple(V, H);
-               resize_transfer -> 
-                build_summary_tuple(V, Rz);
-                        repair -> 
-                build_summary_tuple(V, Rp)
-        end
+      fun(K, V) ->
+              case K of
+                  ownership_transfer ->
+                      build_summary_tuple(V, O);
+                  hinted_handoff ->
+                      build_summary_tuple(V, H);
+                  resize_transfer ->
+                      build_summary_tuple(V, Rz);
+                  repair ->
+                      build_summary_tuple(V, Rp)
+              end
       end, Ongoing).
 
 build_summary_tuple(Data, Total) ->
@@ -114,17 +114,17 @@ build_summary_tuple(Data, Total) ->
 outstanding_count(ownership_transfer, Ring) ->
     OwnershipChanges = riak_core_ring:pending_changes(Ring),
     lists:foldl(fun
-                  ({_, _, '$resize', _, _}, Acc) ->
-                        Acc;
-                  ({_, Source, _, _, awaiting}, Acc) ->
-                        OldCount = case lists:keyfind(Source, 1, Acc) of
-                                       false -> 0;
-                                       {Source, OC} -> OC
-                                   end,
-                        lists:keystore(Source, 1, Acc, {Source, OldCount + 1});
-                   (_, Acc) ->
-                        Acc
-                end, [], OwnershipChanges);
+                    ({_, _, '$resize', _, _}, Acc) ->
+                       Acc;
+                    ({_, Source, _, _, awaiting}, Acc) ->
+                       OldCount = case lists:keyfind(Source, 1, Acc) of
+                                      false -> 0;
+                                      {Source, OC} -> OC
+                                  end,
+                       lists:keystore(Source, 1, Acc, {Source, OldCount + 1});
+                    (_, Acc) ->
+                       Acc
+               end, [], OwnershipChanges);
 outstanding_count(hinted_handoff, Ring) ->
     [begin
          {_, Sec, _} = riak_core_status:partitions(Node, Ring),
@@ -132,7 +132,7 @@ outstanding_count(hinted_handoff, Ring) ->
      end || Node <- riak_core_ring:ready_members(Ring)];
 outstanding_count(resize_transfer, Ring) ->
     Resizes = riak_core_ring:pending_changes(Ring),
-    % FIXME: Is this even correct? vvvvv
+    %% FIXME: Is this even correct? vvvvv
     lists:foldl(fun({_, Source, '$resize', _, awaiting}, Acc) ->
                         OldCount = case lists:keyfind(Source, 1, Acc) of
                                        false -> 0;
@@ -158,11 +158,11 @@ ongoing_transfers_summary() ->
     %% mallen: rpc_every_member_ann calls multirpc_ann which gets its ring state and membership information from the
     %% local ring manager, so its view of the world will be the same as the status code
     {Ongoing, DownNodes} = riak_core_util:rpc_every_member_ann(
-                            riak_core_handoff_manager, status,
-                            [{direction, outbound}], 5000),
+                             riak_core_handoff_manager, status,
+                             [{direction, outbound}], 5000),
 
-    Summary = lists:foldl(fun build_ongoing_node_summaries/2, 
-                                            orddict:new(), Ongoing),
+    Summary = lists:foldl(fun build_ongoing_node_summaries/2,
+                          orddict:new(), Ongoing),
 
     %% Summary is an orddict of node -> handoff_type_counts
     %% DownNodes is a list of node() atoms
@@ -174,10 +174,10 @@ build_ongoing_node_summaries({Node, OutboundTransfers}, Acc) ->
 build_summaries(OutboundTransfers) ->
     I = orddict:from_list(
           [
-               {ownership_transfer, []}, 
-               {hinted_handoff, []}, 
-               {resize_transfer, []}, 
-               {repair, []}
+           {ownership_transfer, []},
+           {hinted_handoff, []},
+           {resize_transfer, []},
+           {repair, []}
           ]),
     lists:foldl(fun store_handoff_by_type/2, I, OutboundTransfers).
 
