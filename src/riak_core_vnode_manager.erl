@@ -715,9 +715,10 @@ should_handoff(Ring, _CHBin, Mod, Idx) ->
     case determine_handoff_target(Type, NextOwner, Ready, IsResizing) of
         undefined ->
             false;
-        {action, Action} ->
+        Action when Action =:= '$resize'
+                    orelse Action =:= '$delete' ->
             {true, Action};
-        {target, TargetNode} ->
+        TargetNode ->
             case app_for_vnode_module(Mod) of
                 undefined -> false;
                 {ok, App} ->
@@ -729,32 +730,42 @@ should_handoff(Ring, _CHBin, Mod, Idx) ->
             end
     end.
 
-determine_handoff_target(Type, NextOwner, Ready, IsResizing) ->
+determine_handoff_target(Type, NextOwner, RingReady, IsResize) ->
     Me = node(),
-    case {Type, NextOwner, Ready, IsResizing} of
-        %% if primary and next owner is me, don't handoff
-        {primary, Me, _, _} -> undefined;
-        %% if primary, don't handoff if no next owner
-        {primary, undefined, _, _} -> undefined;
-        %% if primary and ring ready, target is next owner
-        {primary, _, true, _} -> {target, NextOwner};
-        %% otherwise, if primary don't handoff
-        {primary, _, _, _} -> undefined;
-        %% partitions moved during resize and scheduled for deletion, indexes
-        %% that exist in both the original and resized ring that were moved appear
-        %% as fallbacks.
-        {{fallback, _}, '$delete', _, _} -> {action, '$delete'};
-        %% partitions that no longer exist after the ring has been resized (shrunk)
-        %% scheduled for deletion
-        {resized_primary, '$delete', _, _} -> {action, '$delete'};
-        %% partitions that would have existed in a ring whose expansion was aborted
-        %% and are still running need to be cleaned up after and shutdown
-        {resized_primary, _, _, false} -> {action, '$delete'};
-        %% fallback vnode target is primary (For)
-        {{fallback, For}, undefined, _, _} -> {target, For};
-        %% otherwise don't handoff
-        {_, _, _, _} -> undefined
-    end.
+    determine_handoff_target(Type, NextOwner, RingReady, IsResize, NextOwner =:= Me).
+
+determine_handoff_target(primary, _, _, _, true) ->
+    %% Never hand off to myself as a primary
+    undefined;
+determine_handoff_target(primary, undefined, _, _, _) ->
+    %% No ring change indicated for this partition
+    undefined;
+determine_handoff_target(primary, NextOwner, true, _, _) ->
+    %% Primary, ring is ready, go. This may be a node or a `$resize'
+    %% action
+    NextOwner;
+determine_handoff_target(primary, _, false, _, _) ->
+    %% Ring isn't ready, no matter what, don't do a primary handoff
+    undefined;
+determine_handoff_target({fallback, _Target}, '$delete'=Action, _, _, _) ->
+    %% partitions moved during resize and scheduled for deletion, indexes
+    %% that exist in both the original and resized ring that were moved appear
+    %% as fallbacks.
+    Action;
+determine_handoff_target(resized_primary, '$delete'=Action, _, _, _) ->
+    %% partitions that no longer exist after the ring has been resized (shrunk)
+    %% scheduled for deletion
+    Action;
+determine_handoff_target(resized_primary, _, _, false, _) ->
+    %% partitions that would have existed in a ring whose expansion was aborted
+    %% and are still running need to be cleaned up after and shutdown
+    '$delete';
+determine_handoff_target({fallback, For}, undefined, _, _, _) ->
+    %% Fallback vnode target is primary (hinted handoff).  `For' can
+    %% technically be a `$resize' action but unclear it ever would be
+    For;
+determine_handoff_target(_, _, _, _, _) ->
+    undefined.
 
 
 app_for_vnode_module(Mod) when is_atom(Mod) ->
