@@ -46,7 +46,11 @@
          get_concurrency/1,
          get_all_concurrency/0,
          set_recv_data/2,
-         kill_handoffs/0
+         kill_handoffs/0,
+         build_status_record/5,
+         build_status_record/6,
+         cmd_queued_handoff/1,
+         cmd_active_handoff/1
         ]).
 
 -include("riak_core_handoff.hrl").
@@ -70,6 +74,27 @@
 %%%===================================================================
 %%% API
 %%%===================================================================
+
+
+deduce_handoff_type(Owner) when Owner =:= node() ->
+    ownership_transfer;
+deduce_handoff_type(_Owner) ->
+    hinted_handoff.
+
+build_status_record(Module, OldIdx, TargetIdx, TargetNode, Pid) ->
+    Owner = riak_core_ring:index_owner(
+              riak_core_ring_manager:get_my_ring(),
+              OldIdx),
+    build_status_record(Module, OldIdx, TargetIdx, TargetNode, Pid,
+                        deduce_handoff_type(Owner)).
+
+build_status_record(Module, OldIdx, TargetIdx, TargetNode, Pid, Type) ->
+    #handoff_status{direction=outbound,
+                    timestamp=os:timestamp(),
+                    src_node=node(),
+                    target_node=TargetNode,
+                    mod_src_tgt={Module, OldIdx, TargetIdx},
+                    vnode_pid=Pid, type=Type}.
 
 start_link() ->
     gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
@@ -164,6 +189,13 @@ get_exclusions(Module) ->
     gen_server:call(?MODULE, {get_exclusions, Module}, infinity).
 
 
+cmd_queued_handoff(Handoff) ->
+    gen_server:cast(?MODULE, {cmd_queued_handoff, Handoff}).
+
+cmd_active_handoff(Handoff) ->
+    gen_server:cast(?MODULE, {cmd_active_handoff, Handoff}).
+
+
 %%%===================================================================
 %%% Callbacks
 %%%===================================================================
@@ -256,6 +288,31 @@ handle_cast({status_update, ModSrcTgt, StatsUpdate}, State=#state{handoffs=HS}) 
             {noreply, State#state{handoffs=HS2}}
     end;
 
+handle_cast({cmd_queued_handoff,
+             #handoff_status{mod_src_tgt={Module,
+                                          OldIdx,
+                                          _NewIdx}}=HO},
+            State) ->
+    riak_core_metadata:put({queued_handoff_list, node()},
+                           Module,
+                           cmd_append_fun(Module, OldIdx,
+                                          status_summary(HO))),
+
+    {noreply, State};
+handle_cast({cmd_active_handoff,
+             #handoff_status{mod_src_tgt={Module,
+                                          OldIdx,
+                                          _NewIdx}}=HO},
+            State) ->
+    riak_core_metadata:put({active_handoff_list, node()},
+                           Module,
+                           cmd_append_fun(Module, OldIdx,
+                                          status_summary(HO))),
+    riak_core_metadata:put({queued_handoff_list, node()},
+                           Module,
+                           cmd_delete_fun(Module, OldIdx)),
+    {noreply, State};
+
 handle_cast({send_handoff, Type, Mod, {Src, Target}, ReqOrigin,
              {FilterMod, FilterFun}=FMF},
             State=#state{handoffs=HS}) ->
@@ -342,6 +399,8 @@ handle_info({'DOWN', Ref, process, _Pid, Reason}, State=#state{handoffs=HS}) ->
                     {noreply, State}
             end
     end.
+
+
 
 
 terminate(_Reason, _State) ->
@@ -524,24 +583,25 @@ send_handoff(HOType, {Mod, Src, Target}, Node, Vnode, HS, {Filter, FilterModFun}
                     PidM = monitor(process, Pid),
                     Size = validate_size(proplists:get_value(size, Opts)),
 
+                    Status = #handoff_status{ transport_pid=Pid,
+                                              transport_mon=PidM,
+                                              direction=outbound,
+                                              timestamp=os:timestamp(),
+                                              src_node=node(),
+                                              target_node=Node,
+                                              mod_src_tgt={Mod, Src, Target},
+                                              vnode_pid=Vnode,
+                                              vnode_mon=VnodeM,
+                                              status=[],
+                                              stats=dict:new(),
+                                              type=HOType,
+                                              req_origin=Origin,
+                                              filter_mod_fun=FilterModFun,
+                                              size=Size
+                                            },
+                    riak_core_handoff_manager:cmd_active_handoff(Status),
                     %% successfully started up a new sender handoff
-                    {ok, #handoff_status{ transport_pid=Pid,
-                                          transport_mon=PidM,
-                                          direction=outbound,
-                                          timestamp=os:timestamp(),
-                                          src_node=node(),
-                                          target_node=Node,
-                                          mod_src_tgt={Mod, Src, Target},
-                                          vnode_pid=Vnode,
-                                          vnode_mon=VnodeM,
-                                          status=[],
-                                          stats=dict:new(),
-                                          type=HOType,
-                                          req_origin=Origin,
-                                          filter_mod_fun=FilterModFun,
-                                          size=Size
-                                        }
-                    };
+                    {ok, Status};
 
                 %% handoff already going, just return it
                 AlreadyExists={false,_CurrentHandoff} ->
@@ -616,6 +676,42 @@ kill_xfer_i(ModSrcTarget, Reason, HS) ->
             exit(TP, {kill_xfer, Reason}),
             kill_xfer_i(ModSrcTarget, Reason, HS2)
     end.
+
+%% Core metadata handling
+%%   Prefix:      queued|active_handoff_list
+%%   Subprefix:   node()
+%%   Key:         module
+%%   Value:       orddict of handoffs
+
+
+%%   Orddict Key { module, index }
+%%   Value  - proplist
+
+cmd_append_fun(Module, Index, Proplist) ->
+    Key = {Module, Index},
+    fun(undefined) ->
+            orddict:append(Key, Proplist, orddict:new());
+       (Dict) ->
+            orddict:store(Key, Proplist, Dict)
+    end.
+
+cmd_delete_fun(Module, Index) ->
+    Key = {Module, Index},
+    fun(undefined) ->
+            undefined;
+       (Dict) ->
+            orddict:erase(Key, Dict)
+    end.
+
+status_summary(#handoff_status{
+                  transport_pid=Pid,
+                  direction=Direction,
+                  timestamp=Timestamp,
+                  target_node=Target,
+                  src_node=Source}) ->
+    [{pid, Pid}, {direction, Direction}, {timestamp, Timestamp},
+     {target, Target}, {source, Source}].
+
 
 %%%===================================================================
 %%% Tests

@@ -791,11 +791,18 @@ maybe_trigger_handoff(Mod, Idx, Pid, _State=#state{handoff=HO}) ->
             case riak_core_ring:awaiting_resize_transfer(Ring, {Idx, node()}, Mod) of
                 undefined -> ok;
                 {TargetIdx, TargetNode} ->
+                    riak_core_handoff_manager:cmd_active_handoff(
+                      riak_core_handoff_manager:build_status_record(
+                        Mod, Idx, TargetIdx, TargetNode, Pid,
+                        resize_transfer)),
                     riak_core_vnode:trigger_handoff(Pid, TargetIdx, TargetNode)
             end;
         {ok, '$delete'} ->
             riak_core_vnode:trigger_delete(Pid);
         {ok, TargetNode} ->
+            riak_core_handoff_manager:cmd_active_handoff(
+              riak_core_handoff_manager:build_status_record(
+                Mod, Idx, Idx, TargetNode, Pid)),
             riak_core_vnode:trigger_handoff(Pid, TargetNode),
             ok;
         error ->
