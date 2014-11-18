@@ -715,10 +715,9 @@ should_handoff(Ring, _CHBin, Mod, Idx) ->
     case determine_handoff_target(Type, NextOwner, Ready, IsResizing) of
         undefined ->
             false;
-        Action when Action == '$resize' orelse
-                    Action == '$delete' ->
+        {action, Action} ->
             {true, Action};
-        TargetNode ->
+        {target, TargetNode} ->
             case app_for_vnode_module(Mod) of
                 undefined -> false;
                 {ok, App} ->
@@ -737,22 +736,22 @@ determine_handoff_target(Type, NextOwner, Ready, IsResizing) ->
         {primary, Me, _, _} -> undefined;
         %% if primary, don't handoff if no next owner
         {primary, undefined, _, _} -> undefined;
-        %% if primary and ring ready, target is next owner (may be undef)
-        {primary, _, true, _} -> NextOwner;
+        %% if primary and ring ready, target is next owner
+        {primary, _, true, _} -> {target, NextOwner};
         %% otherwise, if primary don't handoff
         {primary, _, _, _} -> undefined;
         %% partitions moved during resize and scheduled for deletion, indexes
         %% that exist in both the original and resized ring that were moved appear
         %% as fallbacks.
-        {{fallback, _}, '$delete', _, _} -> '$delete';
+        {{fallback, _}, '$delete', _, _} -> {action, '$delete'};
         %% partitions that no longer exist after the ring has been resized (shrunk)
         %% scheduled for deletion
-        {resized_primary, '$delete', _, _} -> '$delete';
+        {resized_primary, '$delete', _, _} -> {action, '$delete'};
         %% partitions that would have existed in a ring whose expansion was aborted
         %% and are still running need to be cleaned up after and shutdown
-        {resized_primary, _, _, false} -> '$delete';
+        {resized_primary, _, _, false} -> {action, '$delete'};
         %% fallback vnode target is primary (For)
-        {{fallback, For}, undefined, _, _} -> For;
+        {{fallback, For}, undefined, _, _} -> {target, For};
         %% otherwise don't handoff
         {_, _, _, _} -> undefined
     end.
