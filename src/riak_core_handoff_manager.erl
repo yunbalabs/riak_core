@@ -49,6 +49,7 @@
          kill_handoffs/0,
          build_status_record/5,
          build_status_record/6,
+         cmd_claimant_queue_overwrite/1,
          cmd_queued_handoff/1,
          cmd_active_handoff/1
         ]).
@@ -81,20 +82,20 @@ deduce_handoff_type(Owner) when Owner =:= node() ->
 deduce_handoff_type(_Owner) ->
     hinted_handoff.
 
-build_status_record(Module, OldIdx, TargetIdx, TargetNode, Pid) ->
+build_status_record(Module, OldIdx, TargetIdx, TargetNode, VNodePid) ->
     Owner = riak_core_ring:index_owner(
               riak_core_ring_manager:get_my_ring(),
               OldIdx),
-    build_status_record(Module, OldIdx, TargetIdx, TargetNode, Pid,
+    build_status_record(Module, OldIdx, TargetIdx, TargetNode, VNodePid,
                         deduce_handoff_type(Owner)).
 
-build_status_record(Module, OldIdx, TargetIdx, TargetNode, Pid, Type) ->
+build_status_record(Module, OldIdx, TargetIdx, TargetNode, VNodePid, Type) ->
     #handoff_status{direction=outbound,
                     timestamp=os:timestamp(),
                     src_node=node(),
                     target_node=TargetNode,
                     mod_src_tgt={Module, OldIdx, TargetIdx},
-                    vnode_pid=Pid, type=Type}.
+                    vnode_pid=VNodePid, type=Type}.
 
 start_link() ->
     gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
@@ -189,6 +190,30 @@ get_exclusions(Module) ->
     gen_server:call(?MODULE, {get_exclusions, Module}, infinity).
 
 
+extract_key_handoff_data(#handoff_status{
+                            type=Type,
+                            mod_src_tgt={Module,
+                                         OldIdx,
+                                         NewIdx}}) ->
+    {Module, Type, OldIdx, NewIdx}.
+
+%%%%
+%% Used exclusively by claimant
+%%    * Overwrites queued/claimant/<module> key in CMD
+%%    * Increments `cmd_version' key in orddict
+cmd_claimant_queue_overwrite([H|_T]=Handoffs) ->
+    {Module, _Type, _OldIdx, _NewIdx} =
+        extract_key_handoff_data(H),
+    gen_server:cast(?MODULE, {cmd_claimant_queue_overwrite, Module, Handoffs}).
+
+cmd_queued_handoff([_H|_T]=Handoffs) ->
+    gen_server:cast(?MODULE, {cmd_queued_handoff_bulk,
+                              lists:map(fun({Mod, Idx, TargetNode, Pid}) ->
+                                                build_status_record(
+                                                  Mod, Idx, Idx,
+                                                  TargetNode, Pid)
+                                        end,
+                                        Handoffs)});
 cmd_queued_handoff(Handoff) ->
     gen_server:cast(?MODULE, {cmd_queued_handoff, Handoff}).
 
@@ -288,29 +313,52 @@ handle_cast({status_update, ModSrcTgt, StatsUpdate}, State=#state{handoffs=HS}) 
             {noreply, State#state{handoffs=HS2}}
     end;
 
-handle_cast({cmd_queued_handoff,
-             #handoff_status{mod_src_tgt={Module,
-                                          OldIdx,
-                                          _NewIdx}}=HO},
-            State) ->
+handle_cast({cmd_claimant_queue_overwrite, Module, Handoffs}, State) ->
+    NewVersion = cmd_find_next_version(Module),
+    riak_core_metadata:put({queued_handoff_list, claimant},
+                           Module,
+                           cmd_dictionary(NewVersion, Handoffs)),
+    {noreply, State};
+handle_cast({cmd_queued_handoff_bulk, Handoffs}, State) ->
+    {_Type, Module, _OldIdx, _NewIdx} = extract_key_handoff_data(hd(Handoffs)),
+    BulkUpdate = lists:map(fun(HO) ->
+                                   {Type, _, OldIdx, _} =
+                                       extract_key_handoff_data(HO),
+                                   {{Type, OldIdx}, status_summary(HO)}
+                           end,
+                           Handoffs),
     riak_core_metadata:put({queued_handoff_list, node()},
                            Module,
-                           cmd_append_fun(Module, OldIdx,
+                           cmd_append_bulk_fun(orddict:from_list(BulkUpdate))),
+
+    {noreply, State};
+handle_cast({cmd_queued_handoff, HO}, State) ->
+    {Type, Module, OldIdx, _NewIdx} = extract_key_handoff_data(HO),
+    riak_core_metadata:put({queued_handoff_list, node()},
+                           Module,
+                           cmd_append_fun(Type, OldIdx,
                                           status_summary(HO))),
 
     {noreply, State};
-handle_cast({cmd_active_handoff,
-             #handoff_status{mod_src_tgt={Module,
-                                          OldIdx,
-                                          _NewIdx}}=HO},
-            State) ->
+handle_cast({cmd_active_handoff, HO}, State) ->
+    {Type, Module, OldIdx, _NewIdx} = extract_key_handoff_data(HO),
+    CMDSubPrefix =
+        case Type of
+            resize_transfer ->
+                claimant;
+            ownership_transfers ->
+                claimant;
+            _ ->
+                node()
+        end,
+
     riak_core_metadata:put({active_handoff_list, node()},
                            Module,
-                           cmd_append_fun(Module, OldIdx,
+                           cmd_append_fun(Type, OldIdx,
                                           status_summary(HO))),
-    riak_core_metadata:put({queued_handoff_list, node()},
+    riak_core_metadata:put({queued_handoff_list, CMDSubPrefix},
                            Module,
-                           cmd_delete_fun(Module, OldIdx)),
+                           cmd_delete_fun(Type, OldIdx)),
     {noreply, State};
 
 handle_cast({send_handoff, Type, Mod, {Src, Target}, ReqOrigin,
@@ -679,29 +727,81 @@ kill_xfer_i(ModSrcTarget, Reason, HS) ->
 
 %% Core metadata handling
 %%   Prefix:      queued|active_handoff_list
-%%   Subprefix:   node()
+%%   Subprefix:   claimant|node()
+%%                (claimant is only valid under `queued')
 %%   Key:         module
 %%   Value:       orddict of handoffs
 
 
-%%   Orddict Key { module, index }
+%%   Orddict Key { type, index }
 %%   Value  - proplist
 
-cmd_append_fun(Module, Index, Proplist) ->
-    Key = {Module, Index},
+cmd_dictionary(Version, Handoffs) ->
+    Dict = orddict:from_list(
+             list:fold(fun(HO) ->
+                               {_Module, Type, OldIdx, _NewIdx} =
+                                   extract_key_handoff_data(HO),
+                               { {Type, OldIdx}, status_summary(HO) }
+                       end,
+                       Handoffs)),
+    orddict:store(cmd_version, Version, Dict).
+
+
+cmd_find_next_version(Module) ->
+    case riak_core_metadata:get({queued_handoff_list,
+                                 claimant}, Module) of
+        undefined ->
+            1;
+        OldDict ->
+            {ok, Version} = orddict:find(cmd_version, OldDict),
+            Version + 1
+    end.
+
+cmd_append_fun(Type, Index, Proplist) ->
+    Key = {Type, Index},
     fun(undefined) ->
             orddict:append(Key, Proplist, orddict:new());
-       (Dict) ->
+       ([Dict]) ->
             orddict:store(Key, Proplist, Dict)
     end.
 
-cmd_delete_fun(Module, Index) ->
-    Key = {Module, Index},
+cmd_append_bulk_fun(NewDict) ->
+    fun(undefined) ->
+            NewDict;
+       ([OldDict]) ->
+            orddict:merge(fun(_Key, _OldV, NewV) -> NewV end,
+                          OldDict, NewDict)
+    end.
+
+%%%%
+%% `cmd_delete_fun' can experience conflicts when updating the
+%% claimant ownership/resize queue
+cmd_delete_fun(Type, Index) ->
+    Key = {Type, Index},
     fun(undefined) ->
             undefined;
-       (Dict) ->
-            orddict:erase(Key, Dict)
+       ([Dict]) ->
+            orddict:erase(Key, Dict);
+       ([_Dict|_T]=List) ->
+            %% Conflicts
+            resolve_claimant_conflicts(List)
     end.
+
+resolve_claimant_conflicts(Dicts) ->
+    Dicts2 = filter_highest_version(Dicts),
+    orddict:from_list(ordsets:to_list(ordsets:intersection(
+      lists:map(fun(D) -> ordset:from_list(orddict:to_list(D)) end,
+                Dicts2)))).
+
+filter_highest_version(Dicts) ->
+    Highest =
+        lists:max(lists:map(fun(D) -> orddict:fetch(cmd_version, D) end,
+                            Dicts)),
+    lists:filter(fun(D) -> orddict:fetch(cmd_version, D) =:= Highest end,
+                           Dicts).
+
+
+
 
 status_summary(#handoff_status{
                   transport_pid=Pid,

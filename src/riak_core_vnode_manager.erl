@@ -698,12 +698,17 @@ update_handoff(AllVNodes, Ring, CHBin, State) ->
         false ->
             State;
         true ->
-            NewHO = lists:flatten([case should_handoff(Ring, CHBin, Mod, Idx) of
+            CmdHO = lists:flatten([case should_handoff(Ring, CHBin, Mod, Idx) of
                                        false ->
                                            [];
                                        {true, TargetNode} ->
-                                           [{{Mod, Idx}, TargetNode}]
-                                   end || {Mod, Idx, _Pid} <- AllVNodes]),
+                                           [{Mod, Idx, TargetNode, Pid}]
+                                   end || {Mod, Idx, Pid} <- AllVNodes]),
+            NewHO = lists:map(
+                      fun({Mod, Idx, TargetNode, _Pid}) ->
+                              {{Mod, Idx}, TargetNode} end,
+                      CmdHO),
+            riak_core_handoff_manager:cmd_queued_handoff(CmdHO),
             State#state{handoff=dict:from_list(NewHO)}
     end.
 
