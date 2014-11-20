@@ -71,21 +71,21 @@
         HOA#handoff_status.mod_src_tgt == HOB#handoff_status.mod_src_tgt
         andalso HOA#handoff_status.timestamp == HOB#handoff_status.timestamp).
 -define(LIMIT_PREFIX, {handoff, concurrency_limit}).
+-define(CMD_PREFIX(QueuedOrActive), {handoff_tracking, QueuedOrActive}).
 
 %%%===================================================================
 %%% API
 %%%===================================================================
 
-
-deduce_handoff_type(Owner) when Owner =:= node() ->
-    ownership_transfer;
-deduce_handoff_type(_Owner) ->
-    hinted_handoff.
+get_owner_by_index(OldIdx) ->
+    {ok, Ring} = riak_core_ring_manager:get_my_ring(),
+    Owner = riak_core_ring:index_owner(
+        Ring,
+        OldIdx),
+    Owner.
 
 build_status_record(Module, OldIdx, TargetIdx, TargetNode, VNodePid) ->
-    Owner = riak_core_ring:index_owner(
-              riak_core_ring_manager:get_my_ring(),
-              OldIdx),
+    Owner = get_owner_by_index(OldIdx),
     build_status_record(Module, OldIdx, TargetIdx, TargetNode, VNodePid,
                         deduce_handoff_type(Owner)).
 
@@ -195,16 +195,34 @@ extract_key_handoff_data(#handoff_status{
                             mod_src_tgt={Module,
                                          OldIdx,
                                          NewIdx}}) ->
-    {Module, Type, OldIdx, NewIdx}.
+    {Module, Type, OldIdx, NewIdx};
+
+extract_key_handoff_data([{Idx, SourceNode,TargetNode,[],_CompletedStatus}]) ->
+    {ring, determine_transfer_type(SourceNode, TargetNode), Idx, Idx};
+extract_key_handoff_data({Idx, SourceNode,TargetNode,[],_CompletedStatus}) ->
+    {ring, determine_transfer_type(SourceNode, TargetNode), Idx, Idx}.
+
+determine_transfer_type(_, '$resize') ->
+    resize_transfer;
+determine_transfer_type(_, '$repair') ->
+    repair;
+determine_transfer_type(SourceNode, _TargetNode) ->
+    deduce_handoff_type(SourceNode).
+
+deduce_handoff_type(Owner) when Owner =:= node() ->
+    ownership_transfer;
+deduce_handoff_type(_Owner) ->
+    hinted_handoff.
 
 %%%%
 %% Used exclusively by claimant
 %%    * Overwrites queued/claimant/<module> key in CMD
 %%    * Increments `cmd_version' key in orddict
-cmd_claimant_queue_overwrite([H|_T]=Handoffs) ->
-    {Module, _Type, _OldIdx, _NewIdx} =
-        extract_key_handoff_data(H),
-    gen_server:cast(?MODULE, {cmd_claimant_queue_overwrite, Module, Handoffs}).
+cmd_claimant_queue_overwrite(Handoffs) ->
+    gen_server:cast(?MODULE, {cmd_claimant_queue_overwrite, Handoffs}).
+
+cmd_queued_handoff([]) ->
+    ok;
 
 cmd_queued_handoff([_H|_T]=Handoffs) ->
     gen_server:cast(?MODULE, {cmd_queued_handoff_bulk,
@@ -313,51 +331,43 @@ handle_cast({status_update, ModSrcTgt, StatsUpdate}, State=#state{handoffs=HS}) 
             {noreply, State#state{handoffs=HS2}}
     end;
 
-handle_cast({cmd_claimant_queue_overwrite, Module, Handoffs}, State) ->
-    NewVersion = cmd_find_next_version(Module),
-    riak_core_metadata:put({queued_handoff_list, claimant},
-                           Module,
+handle_cast({cmd_claimant_queue_overwrite, Handoffs}, State) ->
+    NewVersion = cmd_find_next_version(claimant),
+
+    riak_core_metadata:put(?CMD_PREFIX(queued),
+                           claimant,
                            cmd_dictionary(NewVersion, Handoffs)),
     {noreply, State};
+
 handle_cast({cmd_queued_handoff_bulk, Handoffs}, State) ->
-    {_Type, Module, _OldIdx, _NewIdx} = extract_key_handoff_data(hd(Handoffs)),
     BulkUpdate = lists:map(fun(HO) ->
                                    {Type, _, OldIdx, _} =
                                        extract_key_handoff_data(HO),
                                    {{Type, OldIdx}, status_summary(HO)}
                            end,
                            Handoffs),
-    riak_core_metadata:put({queued_handoff_list, node()},
-                           Module,
+    riak_core_metadata:put(?CMD_PREFIX(queued),
+                           node(),
                            cmd_append_bulk_fun(orddict:from_list(BulkUpdate))),
 
     {noreply, State};
 handle_cast({cmd_queued_handoff, HO}, State) ->
-    {Type, Module, OldIdx, _NewIdx} = extract_key_handoff_data(HO),
-    riak_core_metadata:put({queued_handoff_list, node()},
-                           Module,
+    {Type, _Module, OldIdx, _NewIdx} = extract_key_handoff_data(HO),
+    riak_core_metadata:put(?CMD_PREFIX(queued),
+                           node(),
                            cmd_append_fun(Type, OldIdx,
                                           status_summary(HO))),
 
     {noreply, State};
 handle_cast({cmd_active_handoff, HO}, State) ->
-    {Type, Module, OldIdx, _NewIdx} = extract_key_handoff_data(HO),
-    CMDSubPrefix =
-        case Type of
-            resize_transfer ->
-                claimant;
-            ownership_transfers ->
-                claimant;
-            _ ->
-                node()
-        end,
+    {Type, _Module, OldIdx, _NewIdx} = extract_key_handoff_data(HO),
 
-    riak_core_metadata:put({active_handoff_list, node()},
-                           Module,
+    riak_core_metadata:put(?CMD_PREFIX(active),
+                           node(),
                            cmd_append_fun(Type, OldIdx,
                                           status_summary(HO))),
-    riak_core_metadata:put({queued_handoff_list, CMDSubPrefix},
-                           Module,
+    riak_core_metadata:put(?CMD_PREFIX(queued),
+                           cmd_determine_queued_key(Type),
                            cmd_delete_fun(Type, OldIdx)),
     {noreply, State};
 
@@ -726,10 +736,10 @@ kill_xfer_i(ModSrcTarget, Reason, HS) ->
     end.
 
 %% Core metadata handling
-%%   Prefix:      queued|active_handoff_list
-%%   Subprefix:   claimant|node()
+%%   Prefix:      handoff_tracking
+%%   SubPrefix:   queued|active
+%%   Key:         claimant|node()
 %%                (claimant is only valid under `queued')
-%%   Key:         module
 %%   Value:       orddict of handoffs
 
 
@@ -738,7 +748,7 @@ kill_xfer_i(ModSrcTarget, Reason, HS) ->
 
 cmd_dictionary(Version, Handoffs) ->
     Dict = orddict:from_list(
-             list:fold(fun(HO) ->
+             lists:map(fun(HO) ->
                                {_Module, Type, OldIdx, _NewIdx} =
                                    extract_key_handoff_data(HO),
                                { {Type, OldIdx}, status_summary(HO) }
@@ -787,18 +797,33 @@ cmd_delete_fun(Type, Index) ->
             resolve_claimant_conflicts(List)
     end.
 
+%%%%
+%% Given a transfer type, determine if the queued key in cluster metadata
+%% is `claimant' or the current node
+cmd_determine_queued_key(TransferType) ->
+    NodeOrClaimant =
+        case TransferType of
+            resize_transfer ->
+                claimant;
+            ownership_transfers ->
+                claimant;
+            _ ->
+                node()
+        end,
+    NodeOrClaimant.
+
 resolve_claimant_conflicts(Dicts) ->
     Dicts2 = filter_highest_version(Dicts),
     orddict:from_list(ordsets:to_list(ordsets:intersection(
-      lists:map(fun(D) -> ordset:from_list(orddict:to_list(D)) end,
-                Dicts2)))).
+                                        lists:map(fun(D) -> ordset:from_list(orddict:to_list(D)) end,
+                                                  Dicts2)))).
 
 filter_highest_version(Dicts) ->
     Highest =
         lists:max(lists:map(fun(D) -> orddict:fetch(cmd_version, D) end,
                             Dicts)),
     lists:filter(fun(D) -> orddict:fetch(cmd_version, D) =:= Highest end,
-                           Dicts).
+                 Dicts).
 
 
 
