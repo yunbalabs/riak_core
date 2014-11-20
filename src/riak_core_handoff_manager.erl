@@ -835,7 +835,12 @@ status_summary(#handoff_status{
                   target_node=Target,
                   src_node=Source}) ->
     [{pid, Pid}, {direction, Direction}, {timestamp, Timestamp},
-     {target, Target}, {source, Source}].
+     {target, Target}, {source, Source}];
+
+status_summary({_Idx,SourceNode,TargetNode,_ModList,_CompletedStatus}) ->
+    [{pid, undefined}, {direction, outbound}, {timestamp, os:timestamp()},
+        {target, TargetNode}, {source, SourceNode}].
+
 
 
 %%%===================================================================
