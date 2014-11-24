@@ -698,17 +698,18 @@ update_handoff(AllVNodes, Ring, CHBin, State) ->
         false ->
             State;
         true ->
-            CmdHO = lists:flatten([case should_handoff(Ring, CHBin, Mod, Idx) of
+            HandoffMeta = lists:flatten([case should_handoff(Ring, CHBin, Mod, Idx) of
                                        false ->
                                            [];
                                        {true, TargetNode} ->
                                            [{Mod, Idx, TargetNode, Pid}]
                                    end || {Mod, Idx, Pid} <- AllVNodes]),
+            riak_core_handoff_manager:md_add_queued_handoffs(HandoffMeta),
+
             NewHO = lists:map(
-                      fun({Mod, Idx, TargetNode, _Pid}) ->
-                              {{Mod, Idx}, TargetNode} end,
-                      CmdHO),
-            riak_core_handoff_manager:cmd_queued_handoff(CmdHO),
+                fun({Mod, Idx, TargetNode, _Pid}) ->
+                    {{Mod, Idx}, TargetNode} end,
+                HandoffMeta),
             State#state{handoff=dict:from_list(NewHO)}
     end.
 
@@ -796,18 +797,11 @@ maybe_trigger_handoff(Mod, Idx, Pid, _State=#state{handoff=HO}) ->
             case riak_core_ring:awaiting_resize_transfer(Ring, {Idx, node()}, Mod) of
                 undefined -> ok;
                 {TargetIdx, TargetNode} ->
-                    riak_core_handoff_manager:cmd_active_handoff(
-                      riak_core_handoff_manager:build_status_record(
-                        Mod, Idx, TargetIdx, TargetNode, Pid,
-                        resize_transfer)),
                     riak_core_vnode:trigger_handoff(Pid, TargetIdx, TargetNode)
             end;
         {ok, '$delete'} ->
             riak_core_vnode:trigger_delete(Pid);
         {ok, TargetNode} ->
-            riak_core_handoff_manager:cmd_active_handoff(
-              riak_core_handoff_manager:build_status_record(
-                Mod, Idx, Idx, TargetNode, Pid)),
             riak_core_vnode:trigger_handoff(Pid, TargetNode),
             ok;
         error ->
