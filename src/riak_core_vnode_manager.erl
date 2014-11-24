@@ -704,7 +704,7 @@ update_handoff(AllVNodes, Ring, CHBin, State) ->
                                        {true, TargetNode} ->
                                            [{Mod, Idx, TargetNode, Pid}]
                                    end || {Mod, Idx, Pid} <- AllVNodes]),
-            riak_core_handoff_manager:md_add_queued_handoffs(HandoffMeta),
+            riak_core_handoff_tracking:add_queued_handoffs(HandoffMeta),
 
             NewHO = lists:map(
                 fun({Mod, Idx, TargetNode, _Pid}) ->

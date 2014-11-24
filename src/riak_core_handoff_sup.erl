@@ -38,5 +38,6 @@ init ([]) ->
          [?CHILD(riak_core_handoff_receiver_sup,supervisor),
           ?CHILD(riak_core_handoff_sender_sup,supervisor),
           ?CHILD(riak_core_handoff_listener_sup,supervisor),
-          ?CHILD(riak_core_handoff_manager,worker)
+          ?CHILD(riak_core_handoff_manager,worker),
+          ?CHILD(riak_core_handoff_tracking,worker)
          ]}}.
