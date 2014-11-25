@@ -84,6 +84,9 @@ init([]) ->
     register_cli_commands(),
     register_cli_config(),
     register_usage(),
+    %% This one should probably live in a more general spot, like riak_core_sup
+    %% (but not a supervisor) or something.
+    register_node_finder(),
     {ok, _} = timer:apply_after(1, ?MODULE, set_concurrency, [Limit]),
     {ok, #state{excl=sets:new(), handoffs=[]}}.
 
@@ -664,6 +667,13 @@ handoff_limit_usage() ->
      "      just talking to the local node.\n\n"
      ].
 
+register_node_finder() ->
+    F = fun() ->
+            {ok, MyRing} = riak_core_ring_manager:get_my_ring(),
+            riak_core_ring:all_members(MyRing)
+        end,
+    riak_cli:register_node_finder(F).
+
 register_usage() ->
     riak_cli:register_usage(["riak-admin", "handoff"], handoff_usage()),
     riak_cli:register_usage(["riak-admin", "handoff", "limit"],
@@ -671,13 +681,11 @@ register_usage() ->
 
 register_cli_commands() ->
     Cmd = ["riak-admin", "handoff", "limit"],
-    Description = "Show the number of concurrent transfers allowed",
     %% There are no key/value arguments for this command
     Keys = [],
     Flags = all_cli_flags(),
     Fun = fun show_handoff_limit/2,
-    riak_cli:register_command(Cmd, Description, Keys, Flags,
-        Fun).
+    riak_cli:register_command(Cmd, Keys, Flags, Fun).
 
 
 %% Configuration commands are 'set' and 'show'.
@@ -725,10 +733,10 @@ set_transfer_limit(["transfer_limit"], LimitStr, Flags) ->
             set_concurrency(Limit),
             io:format("Set transfer limit for ~p to ~b~n", [node(), Limit]);
         _ ->
-            set_handoff_limit([Limit], Flags)
+            set_handoff_limit(Limit, Flags)
     end.
 
-set_handoff_limit([Limit], Flags) ->
+set_handoff_limit(Limit, Flags) ->
     case lists:keyfind(node, 1, Flags) of
         {node, Node} ->
             set_node_handoff_limit(Node, Limit);
@@ -740,7 +748,7 @@ set_handoff_limit(Limit) ->
     io:format("Setting transfer limit to ~b across the cluster~n", [Limit]),
     {_, Down} = riak_core_util:rpc_every_member_ann(?MODULE,
                                                     set_concurrency,
-                                                    [Limit], 5000),
+                                                    [Limit], 10000),
     (Down == []) orelse io:format("Failed to set limit for: ~p~n", [Down]),
     ok.
 
