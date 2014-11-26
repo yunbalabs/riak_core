@@ -124,7 +124,7 @@ build_transfer_summary(OngoingSummary, OutstandingSummary, DownNodes) ->
 
 merge_outstanding(Node, Ongoing, Outstanding) ->
     [O, H, Rz, Rp] = lists:map(
-                       fun(L) -> proplists:get_value(Node, L, 0) end, Outstanding),
+                       fun(L) -> proplists:get_value(Node, L, {0, 0}) end, Outstanding),
     orddict:map(
       fun(K, V) ->
               case K of
@@ -139,7 +139,8 @@ merge_outstanding(Node, Ongoing, Outstanding) ->
               end
       end, Ongoing).
 
-build_summary_tuple(Data, Total) ->
+build_summary_tuple(Data, {In, Out}) ->
+    Total = In + Out,
     C = length(Data),
     O = max(Total - C, C),
     T = max(Total, C),
@@ -147,18 +148,16 @@ build_summary_tuple(Data, Total) ->
 
 
 %% TODO: collapse into less functions where functional heads match i.e., ownership and resize
--spec outstanding_count(ho_type(), riak_core_ring:riak_core_ring(), fun()) -> [{node(), pos_integer()}].
+-spec outstanding_count(ho_type(), riak_core_ring:riak_core_ring(), fun()) -> [{node(), {non_neg_integer(), non_neg_integer()}}].
 outstanding_count(ownership_transfer, Ring, _CollectFun) ->
     OwnershipChanges = riak_core_ring:pending_changes(Ring),
+
     lists:foldl(fun
                     ({_, _, '$resize', _, _}, Acc) ->
                        Acc;
-                    ({_, Source, _, _, awaiting}, Acc) ->
-                       OldCount = case lists:keyfind(Source, 1, Acc) of
-                                      false -> 0;
-                                      {Source, OC} -> OC
-                                  end,
-                       lists:keystore(Source, 1, Acc, {Source, OldCount + 1});
+                    ({_, Source, Dest, _, awaiting}, Acc) ->
+                        Acc1 = increment_outbound_tally(Source, Acc),
+                        increment_inbound_tally(Dest, Acc1);
                     (_, Acc) ->
                        Acc
                end, [], OwnershipChanges);
@@ -166,21 +165,19 @@ outstanding_count(hinted_handoff, Ring, _CollectFun) ->
     [begin
          try
              {_, Sec, _} = riak_core_status:partitions(Node, Ring),
-             {Node, length(Sec)}
+             {Node, {0, length(Sec)}}
          catch _:_ ->
-                 {Node, "unknown"}
+             {Node, {0, 0}}
          end
      end || Node <- riak_core_ring:ready_members(Ring)];
 
 outstanding_count(resize_transfer, Ring, _CollectFun) ->
     Resizes = riak_core_ring:pending_changes(Ring),
-    %% FIXME: Is this even correct? vvvvv
-    lists:foldl(fun({_, Source, '$resize', _, awaiting}, Acc) ->
-                        OldCount = case lists:keyfind(Source, 1, Acc) of
-                                       false -> 0;
-                                       {Source, OC} -> OC
-                                   end,
-                        lists:keystore(Source, 1, Acc, {Source, OldCount + 1});
+    NewRing = riak_core_ring:future_ring(Ring),
+    lists:foldl(fun({Idx, Source, '$resize', _, awaiting}, Acc) ->
+                        Acc1 = increment_outbound_tally(Source, Acc),
+                        increment_inbound_tally(
+                          riak_core_ring:index_owner(NewRing, Idx), Acc1);
                    (_, Acc) ->
                         Acc
                 end, [], Resizes);
@@ -192,7 +189,7 @@ outstanding_count(repair, _Ring, CollectFun) ->
     lists:foldl(fun count_repairs/2, [], Repairs).
 
 count_repairs({Node, RepairRecords}, Acc) ->
-    [ {Node, length(RepairRecords)} | Acc ].
+    [ {Node, {0, length(RepairRecords)}} | Acc ].
 
 ongoing_transfers_summary(CollectFun) ->
     %% TODO (jwest): have option to use cluster metadata instead of this rpc
@@ -228,3 +225,17 @@ build_summaries(OutboundTransfers) ->
 store_handoff_by_type({status_v2, Status}, D) ->
     {_, Type} = lists:keyfind(type, 1, Status),
     orddict:append(Type, Status, D).
+
+find_tallies(Node, List) ->
+    case lists:keyfind(Node, 1, List) of
+                    false -> {0, 0};
+                    {Node, {_In, _Out}=Counts} -> Counts
+    end.
+
+increment_inbound_tally(Node, List) ->
+    {In, Out} = find_tallies(Node, List),
+    lists:keystore(Node, 1, List, {Node, {In+1, Out}}).
+
+increment_outbound_tally(Node, List) ->
+    {In, Out} = find_tallies(Node, List),
+    lists:keystore(Node, 1, List, {Node, {In, Out+1}}).
