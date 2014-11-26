@@ -868,7 +868,7 @@ pending_changes(State) ->
     State?CHSTATE.next.
 
 set_pending_changes(State, Transfers) ->
-    riak_core_handoff_tracking:overwrite_claimant_queue(Transfers),
+    riak_core_transfers:overwrite_claimant_queue(Transfers),
     State?CHSTATE{next=Transfers}.
 
 %% @doc Given a ring, `Resizing', that has been resized (and presumably rebalanced)

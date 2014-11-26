@@ -541,7 +541,7 @@ send_handoff(HOType, {Mod, Src, Target}, Node, Vnode, HS, {Filter, FilterModFun}
                                               filter_mod_fun=FilterModFun,
                                               size=Size
                                             },
-                    riak_core_handoff_tracking:add_active_handoff(Status),
+                    riak_core_transfers:add_active_handoff(Status),
                     %% successfully started up a new sender handoff
                     {ok, Status};
 

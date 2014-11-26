@@ -20,7 +20,7 @@
 %% under the License.
 %%
 %% -------------------------------------------------------------------
--module(riak_core_handoff_tracking).
+-module(riak_core_transfers).
 -behaviour(gen_server).
 
 -include("riak_core_handoff.hrl").
