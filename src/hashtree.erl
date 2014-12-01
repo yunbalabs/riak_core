@@ -169,6 +169,11 @@
 
 -type select_fun(T) :: fun((orddict()) -> T).
 
+%% Tagging fun takes a Key and returns a set of tags for that key.
+%% The tag 'all' is always included implicitly.
+-type tag() :: atom().
+-type tagging_fun() :: fun((binary()) -> [tag()]).
+
 -record(state, {id             :: tree_id_bin(),
                 index          :: index(),
                 levels         :: pos_integer(),
@@ -179,6 +184,7 @@
                 ref            :: term(),
                 path           :: string(),
                 itr            :: term(),
+                tag_fun = fun default_tag_fun/1 :: tagging_fun(),
                 write_buffer   :: [{put, binary(), binary()} | {delete, binary()}],
                 write_buffer_count :: integer(),
                 dirty_segments :: array()
@@ -229,6 +235,7 @@ new({Index,TreeId}, LinkedStore, Options) ->
     NumSegments = proplists:get_value(segments, Options, ?NUM_SEGMENTS),
     Width = proplists:get_value(width, Options, ?WIDTH),
     MemLevels = proplists:get_value(mem_levels, Options, ?MEM_LEVELS),
+    TaggingFun = proplists:get_value(tag_fun, Options, fun default_tag_fun/1),
     NumLevels = erlang:trunc(math:log(NumSegments) / math:log(Width)) + 1,
     State = #state{id=encode_id(TreeId),
                    index=Index,
@@ -236,6 +243,7 @@ new({Index,TreeId}, LinkedStore, Options) ->
                    segments=NumSegments,
                    width=Width,
                    mem_levels=MemLevels,
+                   tag_fun = TaggingFun,
                    %% dirty_segments=gb_sets:new(),
                    dirty_segments=bitarray_new(NumSegments),
                    write_buffer=[],
@@ -388,7 +396,7 @@ rehash_perform(State) ->
 
 -spec top_hash(hashtree()) -> [] | [{0, binary()}].
 top_hash(State) ->
-    get_bucket(1, 0, State).
+    get_bucket(1, 0, State, all).
 
 compare(Tree, Remote, AccFun, Acc) ->
     compare(1, 0, Tree, Remote, AccFun, Acc).
@@ -430,16 +438,36 @@ read_meta(Key, State) when is_binary(Key) ->
 
 -spec key_hashes(hashtree(), integer()) -> [{integer(), orddict()}].
 key_hashes(State, Segment) ->
-    multi_select_segment(State, [Segment], fun(X) -> X end).
+    key_hashes(State, Segment, all).
+
+-spec key_hashes(hashtree(), integer(), tag()) -> [{integer(), orddict()}].
+key_hashes(State, Segment, all) ->
+    multi_select_segment(State, [Segment], fun(X) -> X end);
+key_hashes(State, Segment, Tag) ->
+    Tagger = State#state.tag_fun,
+    KeysAndHashes = multi_select_segment(State, [Segment], fun(X) -> X end),
+    lists:filter(fun({K,_V}) ->
+                         lists:member(Tag, Tagger(K))
+                 end,
+                 KeysAndHashes).
 
 -spec get_bucket(integer(), integer(), hashtree()) -> orddict().
 get_bucket(Level, Bucket, State) ->
-    case Level =< State#state.mem_levels of
+    get_bucket(Level, Bucket, State, all).
+
+
+-spec get_bucket(integer(), integer(), hashtree(), tag()) -> orddict().
+get_bucket(Level, Bucket, State, Tag) ->
+    Dict = case Level =< State#state.mem_levels of
         true ->
             get_memory_bucket(Level, Bucket, State);
         false ->
             get_disk_bucket(Level, Bucket, State)
-    end.
+    end,
+    lists:flatten( [ case lists:keyfind(Tag, 1, HashByTag) of
+                         false -> [];
+                         {Tag, Hash} -> {Sub, Hash}
+                     end || {Sub, HashByTag} <- Dict] ).
 
 %%%===================================================================
 %%% Internal functions
@@ -559,7 +587,7 @@ get_env(Key, Default) ->
     app_helper:get_env(riak_kv, Key, CoreEnv).
 
 -spec update_levels(integer(),
-                    [{integer(), [{integer(), binary()}]}],
+                    [{integer(), [{integer(), [{tag(),binary()}]}]}],
                     hashtree()) -> hashtree().
 update_levels(0, _, State) ->
     State;
@@ -572,7 +600,7 @@ update_levels(Level, Groups, State) ->
                                                     Hashes1,
                                                     Hashes2),
                             StateAcc2 = set_bucket(Level, Bucket, Hashes3, StateAcc),
-                            NewBucket = {Bucket, hash(Hashes3)},
+                            NewBucket = {Bucket, hash_bucket(Hashes3)},
                             {StateAcc2, [NewBucket | BucketsAcc]}
                     end, {State, []}, Groups),
     Groups2 = group(NewBuckets, State#state.width),
@@ -588,8 +616,8 @@ update_levels(Level, Groups, State) ->
 %%   [{1,[{1,H1}, {2,H2}, {3,H3}, {4,H4}]},
 %%    {2,[{5,H5}, {6,H6}, {7,H7}, {8,H8}]}]
 %%
--spec group([{integer(), binary()}], pos_integer())
-           -> [{integer(), [{integer(), binary()}]}].
+-spec group([{integer(), any()}], pos_integer())
+           -> [{integer(), [{integer(), any()}]}].
 group(L, Width) ->
     {FirstId, _} = hd(L),
     FirstBucket = FirstId div Width,
@@ -675,9 +703,52 @@ encode_bucket(TreeId, Level, Bucket) ->
 encode_meta(Key) ->
     <<$m,Key/binary>>.
 
--spec hashes(hashtree(), list('*'|integer())) -> [{integer(), binary()}].
+-spec hashes(hashtree(), list('*'|integer())) -> [{integer(), [{tag(), binary()}]}].
 hashes(State, Segments) ->
-    multi_select_segment(State, Segments, fun hash/1).
+    HashFun = fun(KVs) -> tagged_hash(State, KVs) end,
+    multi_select_segment(State, Segments, HashFun).
+
+-spec tagged_hash( hashtree(), [{binary(), binary()}] ) -> [{tag(), binary()}]. 
+tagged_hash(State, KVs) ->
+    TagFun = State#state.tag_fun,
+    Tag2KVs =
+        lists:foldl(fun(KV={HK,_}, TagDict) ->
+                            case safe_decode(HK) of
+                                {bad, _, _} -> TagDict;
+                                {_, _, K} ->
+                                    Tags = lists:usort([all|TagFun(K)]),
+                                    lists:foldl( fun(Tag, TagDict2) ->
+                                                         orddict:update(Tag,
+                                                                        fun(L) -> [KV|L] end,
+                                                                        [KV],
+                                                                        TagDict2)
+                                                 end,
+                                                 TagDict,
+                                                 Tags)
+                            end
+                    end,
+                    orddict:new(),
+                    KVs),
+
+    [ {Tag, hash(lists:reverse(KVsForTag))} || {Tag, KVsForTag} <- Tag2KVs ].
+
+-spec hash_bucket( [{non_neg_integer(), [{tag(), binary()}]}] ) -> [{tag(), binary()}].
+hash_bucket(SubToTaggedHash) ->
+    TagToHashable =
+        lists:foldl(fun({SubID, TagToHash}, Acc) ->
+                            lists:foldl(fun({Tag,Hash}, Acc2) ->
+                                                orddict:update(Tag,
+                                                               fun(L) -> [{SubID,Hash}|L] end,
+                                                               [{SubID,Hash}],
+                                                               Acc2)
+                                        end,
+                                        Acc,
+                                        TagToHash)
+                    end,
+                    orddict:new(),
+                    SubToTaggedHash),
+    [ {Tag, hash(lists:reverse(Sub2Hash))} || {Tag,Sub2Hash} <- TagToHashable ].
+
 
 -spec snapshot(hashtree()) -> hashtree().
 snapshot(State) ->
@@ -961,6 +1032,11 @@ expand(V, N, Acc) ->
                 Acc
         end,
     expand(V bsr 1, N+1, Acc2).
+
+%% Tagging
+
+default_tag_fun(_Key) ->
+    [].
 
 %%%===================================================================
 %%% Experiments
