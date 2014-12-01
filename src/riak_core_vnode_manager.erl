@@ -28,7 +28,7 @@
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
          terminate/2, code_change/3]).
 -export([all_vnodes/0, all_vnodes/1, all_vnodes_status/0,
-         force_handoffs/0, repair/3, all_repairs/0, repair_status/1, xfer_complete/2,
+         force_handoffs/0, repair/3, all_handoffs/0, repair_status/1, xfer_complete/2,
          kill_repairs/1]).
 -export([all_index_pid/1, get_vnode_pid/2, start_vnode/2,
          unregister_vnode/2, unregister_vnode/3, vnode_event/4]).
@@ -112,10 +112,11 @@ repair_status({_Module, Partition}=ModPartition) ->
     Owner = riak_core_ring:index_owner(Ring, Partition),
     gen_server:call({?MODULE, Owner}, {repair_status, ModPartition}, ?LONG_TIMEOUT).
 
-%% @doc Get all repairs known by this manager.
--spec all_repairs() -> repairs().
-all_repairs() ->
-    gen_server:call(?MODULE, {all_repairs}, ?LONG_TIMEOUT).
+%% @doc Get all handoffs known by this manager.
+-spec all_handoffs() -> list(tuple({module(), index()},
+                                   {ho_type()|delete, inbound|outbound|local, node()})).
+all_handoffs() ->
+    gen_server:call(?MODULE, all_handoffs, ?LONG_TIMEOUT).
 
 %% TODO: make cast with retry on handoff sender side and handshake?
 %%
@@ -289,8 +290,9 @@ handle_call({repair, Service, {Mod,Partition}=ModPartition, FilterModFun},
             {reply, {ok, Pairs}, State}
     end;
 
-handle_call({all_repairs}, _From, State=#state{repairs=Repairs}) ->
-    {reply, Repairs, State};
+handle_call(all_handoffs, _From, State=#state{repairs=Repairs, handoff=HO}) ->
+    Handoffs=dict:to_list(HO) ++ transform_repair_records(Repairs),
+    {reply, Handoffs, State};
 
 handle_call({repair_status, ModPartition}, _From, State) ->
     Repairs = State#state.repairs,
@@ -337,6 +339,18 @@ handle_call({xfer_complete, ModSrcTgt}, _From, State) ->
 
 handle_call(_, _From, State) ->
     {reply, ok, State}.
+
+transform_repair_records(Repairs) ->
+    %% World's ugliest pattern match, simplest logic: matching
+    %% module/node values in the `pairs' field against
+    %% `minus_one_xfer' and `plus_one_xfer'
+    lists:flatten(lists:map(fun(#repair{pairs=[{M1SrcIdx, Mnode}, _FixPartition, {P1SrcIdx, Pnode}],
+                                        minus_one_xfer=#xfer_status{mod_src_target={M1Mod, M1SrcIdx, _M1DstIdx}},
+                                        plus_one_xfer=#xfer_status{mod_src_target={P1Mod, P1SrcIdx, _P1DstIdx}}}) ->
+                                    [{{M1Mod, M1SrcIdx}, {repair, inbound, Mnode}},
+                                     {{P1Mod, P1SrcIdx}, {repair, inbound, Pnode}}]
+                            end,
+                            Repairs)).
 
 maybe_create_repair(Partition, Service, ModPartition, FilterModFun, Mod, Repairs, State) ->
     {ok, Ring} = riak_core_ring_manager:get_my_ring(),
@@ -566,7 +580,7 @@ idx2vnode(Idx, Mod, _State=#state{idxtab=T}) ->
 delmon(MonRef, _State=#state{idxtab=T}) ->
     case ets:lookup(T, MonRef) of
         [#monrec{key= {Index, Mod} = Key}] ->
-	    _ = unregister_vnode_stats(Mod, Index),
+            _ = unregister_vnode_stats(Mod, Index),
             ets:match_delete(T, {idxrec, Key, '_', '_', '_', MonRef}),
             ets:delete(T, MonRef);
         [] ->
@@ -701,8 +715,14 @@ update_handoff(AllVNodes, Ring, CHBin, State) ->
             NewHO = lists:flatten([case should_handoff(Ring, CHBin, Mod, Idx) of
                                        false ->
                                            [];
-                                       {true, TargetNode} ->
-                                           [{{Mod, Idx}, TargetNode}]
+                                       {true, primary, TargetNode} ->
+                                           [{{Mod, Idx}, {ownership_handoff, outbound, TargetNode}}];
+                                       {true, {fallback, _Node}, TargetNode} ->
+                                           [{{Mod, Idx}, {hinted_handoff, outbound, TargetNode}}];
+                                       {true, '$resize'=Action} ->
+                                           [{{Mod, Idx}, {resize_transfer, outbound, Action}}];
+                                       {true, '$delete'=Action} ->
+                                           [{{Mod, Idx}, {delete, local, Action}}]
                                    end || {Mod, Idx, _Pid} <- AllVNodes]),
             State#state{handoff=dict:from_list(NewHO)}
     end.
@@ -725,7 +745,7 @@ should_handoff(Ring, _CHBin, Mod, Idx) ->
                     case lists:member(TargetNode,
                                       riak_core_node_watcher:nodes(App)) of
                         false  -> false;
-                        true -> {true, TargetNode}
+                        true -> {true, Type, TargetNode}
                     end
             end
     end.
@@ -786,16 +806,16 @@ maybe_trigger_handoff(Mod, Idx, State) ->
 
 maybe_trigger_handoff(Mod, Idx, Pid, _State=#state{handoff=HO}) ->
     case dict:find({Mod, Idx}, HO) of
-        {ok, '$resize'} ->
+        {ok, {resize_transfer, _Direction, '$resize'}} ->
             {ok, Ring} = riak_core_ring_manager:get_my_ring(),
             case riak_core_ring:awaiting_resize_transfer(Ring, {Idx, node()}, Mod) of
                 undefined -> ok;
                 {TargetIdx, TargetNode} ->
                     riak_core_vnode:trigger_handoff(Pid, TargetIdx, TargetNode)
             end;
-        {ok, '$delete'} ->
+        {ok, {delete, local, '$delete'}} ->
             riak_core_vnode:trigger_delete(Pid);
-        {ok, TargetNode} ->
+        {ok, {_Type, _Direction, TargetNode}} ->
             riak_core_vnode:trigger_handoff(Pid, TargetNode),
             ok;
         error ->
@@ -823,7 +843,8 @@ get_all_vnodes_status(#state{forwarding=Forwarding, handoff=HO}) ->
     Forwarding2 = [{MI, {forwarding, Node}} || {MI,Node} <- Forwarding1,
                                                Node /= undefined],
     Handoff1 = lists:sort(dict:to_list(HO)),
-    Handoff2 = [{MI, {should_handoff, Node}} || {MI,Node} <- Handoff1],
+    Handoff2 = [{MI, {should_handoff, Node}} ||
+                   {MI,{_Type, _Direction, Node}} <- Handoff1],
 
     MergeFn = fun(_, V1, V2) when is_list(V1) and is_list(V2) ->
                       V1 ++ V2;
