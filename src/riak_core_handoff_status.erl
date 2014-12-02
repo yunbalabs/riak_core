@@ -27,9 +27,6 @@
          handoff_summary/1
         ]).
 
--define(INCREMENT_TALLIES(Src, Dst, Acc),
-        increment_outbound_tally(Src,
-                                 increment_inbound_tally(Dst, Acc))).
 -define(KNOWN_XFERS_MFA,
         {riak_core_vnode_manager, all_handoffs, []}).
 -define(ACTIVE_XFERS_MFA,
@@ -119,9 +116,9 @@ parse_ring_into_known(Ring) ->
 collect_known_transfers(Ring, CollectFun) ->
     {Unidirectional1, DownNodes} = CollectFun(?KNOWN_XFERS_MFA),
     Unidirectional2 =
-        replace_known_with_ring_transfers(flatten_transfer_proplist(
+        lists:flatten(replace_known_with_ring_transfers(flatten_transfer_proplist(
                                             Unidirectional1),
-                                          parse_ring_into_known(Ring)),
+                                          parse_ring_into_known(Ring))),
     {coalesce_known_transfers(
        reverse_known_transfers(Ring, Unidirectional2), Unidirectional2),
      DownNodes}.
@@ -228,7 +225,8 @@ node_summary(_Scope, CollectFun) ->
 
     Header = {text, "Each cell indicates active transfers and the percentage of all known transfers they represent. The 'Total' column is the sum of the active transfers."},
     Table = {table, Schema,
-             [ [ format_node_name(Node) | row_summary(Node, KnownStats, ActiveStats) ] || Node <- ordsets:to_list(orddict:fetch(nodes, ActiveStats)) ]},
+             [ [ format_node_name(Node) | row_summary(Node, KnownStats, ActiveStats) ] ||
+                 Node <- riak_core_ring:ready_members(Ring)]},
     case DownNodes of
         [] ->
             [Header, Table];
