@@ -114,7 +114,7 @@ repair_status({_Module, Partition}=ModPartition) ->
 
 %% @doc Get all handoffs known by this manager.
 -spec all_handoffs() -> list(tuple({module(), index()},
-                                   {ho_type()|delete, inbound|outbound|local, node()})).
+                                   {ho_type()|'delete', 'inbound'|'outbound'|'local', node()})).
 all_handoffs() ->
     gen_server:call(?MODULE, all_handoffs, ?LONG_TIMEOUT).
 
