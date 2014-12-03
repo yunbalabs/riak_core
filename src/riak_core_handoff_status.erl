@@ -41,14 +41,14 @@ handoff_summary() ->
 
 -spec handoff_summary('local'|'all'|node()) -> string().
 handoff_summary(local) ->
-    riak_core_console_writer:write(node_summary(single, fun collect_from_local/1));
+    riak_core_console_writer:write(node_summary(node(), fun collect_from_local/1));
 
 handoff_summary(all) ->
     riak_core_console_writer:write(node_summary(all, fun collect_from_all/1));
 
 handoff_summary(Node) ->
     CollectFun = fun({M, F, A}) -> collect_from_other(Node, {M, F, A}) end,
-    riak_core_console_writer:write(node_summary(single, CollectFun)).
+    riak_core_console_writer:write(node_summary(Node, CollectFun)).
 
 collect_from_other(Node, {M, F, A}) ->
     case riak_core_util:safe_rpc(Node, M, F, A, 5000) of
@@ -201,8 +201,8 @@ count_known_transfers(Transfers) ->
 increment_counter(Key, Dict) ->
     orddict:update_counter(Key, 1, Dict).
 
--spec node_summary('single'|'all', fun()) -> string().
-node_summary(_Scope, CollectFun) ->
+-spec node_summary(node()|'all', fun()) -> string().
+node_summary(NodeOrAll, CollectFun) ->
     {ok, Ring} = riak_core_ring_manager:get_my_ring(),
 
     %% Known and Active will be proplists with each node name showing
@@ -225,10 +225,13 @@ node_summary(_Scope, CollectFun) ->
 
     Header = {text, "Each cell indicates active transfers and, in parenthesis, the number of all known transfers. The 'Total' column is the sum of the active transfers."},
     AllNodes = riak_core_ring:all_members(Ring),
-    UpNodes = AllNodes -- DownNodes,
+    Nodes = case NodeOrAll of
+        all -> AllNodes -- DownNodes;
+        Node -> [Node]
+    end,
     Table = {table, Schema,
              [ [ format_node_name(Node) | row_summary(Node, KnownStats, ActiveStats) ] ||
-                 Node <- UpNodes]},
+                 Node <- Nodes]},
     case DownNodes of
         [] ->
             [Header, Table];
