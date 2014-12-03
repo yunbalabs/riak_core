@@ -124,7 +124,7 @@ collect_known_transfers(Ring, CollectFun) ->
      DownNodes}.
 
 find_resize_target(Ring, Idx) ->
-    riak_core_ring:index_owner(riak_core_ring:future_ring(Ring), Idx).
+    riak_core_ring:index_owner(Ring, Idx).
 
 flatten_transfer_proplist(List) ->
     lists:flatten(
