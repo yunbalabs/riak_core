@@ -60,7 +60,12 @@ collect_from_local({M, F, A}) ->
     {[{node(), apply(M, F, A)}], []}.
 
 collect_from_all({M, F, A}) ->
-    riak_core_util:rpc_every_member_ann(M, F, A, 5000).
+    {Results, DownNodes} = riak_core_util:rpc_every_member_ann(M, F, A, 5000),
+    {Good, Bad} = lists:partition(fun({_Node, {badrpc, _}}) -> false;
+        (_) -> true end, Results),
+    BadNodes = lists:map(fun({Node, _}) -> Node end, Bad),
+    {Good, DownNodes ++ BadNodes}.
+
 
 %% See riak_core_handoff_manager:build_status/1 for details on this structure
 -spec collect_active_transfers(fun()) ->
