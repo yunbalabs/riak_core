@@ -68,8 +68,36 @@ collect_from_all({M, F, A}) ->
                                         [{status_v2, list(tuple())}]}],
                                        [node()]}.
 collect_active_transfers(CollectFun) ->
-    {Active, DownNodes} = CollectFun(?ACTIVE_XFERS_MFA),
-    {flatten_transfer_proplist(Active), DownNodes}.
+    {AllActive, DownNodes} = CollectFun(?ACTIVE_XFERS_MFA),
+    Flattened = flatten_transfer_proplist(AllActive),
+    {Inbound, Outbound} = lists:partition(fun(T) -> transfer_info(T, direction) =:= inbound end, Flattened),
+    InboundWithType = populate_inbound_types(Inbound, Outbound),
+    Active = Outbound ++ InboundWithType,
+    {Active, DownNodes}.
+
+populate_inbound_types(Inbound, Outbound) ->
+    [case find_matching_outbound(Transfer, Outbound) of
+             [] -> Transfer;
+             [Match | _] ->
+                 Type = transfer_info(Match, type),
+                 replace_transfer_type(Transfer, Type)
+         end || Transfer <- Inbound].
+
+find_matching_outbound({Node, _} = Transfer, Outbound) ->
+    TargetPartition = transfer_info(Transfer, target_partition),
+    Mod = transfer_info(Transfer, mod),
+    lists:filter(fun(OutTrans) ->
+        TargetPartition =:= transfer_info(OutTrans, target_partition) andalso
+        Mod =:= transfer_info(OutTrans, mod) andalso
+        Node =:= transfer_info(OutTrans, target_node)
+    end, Outbound).
+
+replace_transfer_type({Node, {status_v2, Status}}, Type) ->
+    {Node, {status_v2, lists:keyreplace(type, 1, Status, {type, Type})}}.
+
+transfer_info({_Node, {status_v2, Status}}, Key) ->
+    {Key, Value} = lists:keyfind(Key, 1, Status),
+    Value.
 
 replace_known_with_ring_transfers(Known, RingTransfers) ->
     Known1 = lists:filter(fun({_Node, {{_Module, _Index},
