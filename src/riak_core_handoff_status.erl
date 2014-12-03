@@ -47,7 +47,7 @@ handoff_summary(all) ->
     riak_core_console_writer:write(node_summary(all, fun collect_from_all/1));
 
 handoff_summary(Node) ->
-    CollectFun = fun(M, F, A) -> collect_from_other(Node, {M, F, A}) end,
+    CollectFun = fun({M, F, A}) -> collect_from_other(Node, {M, F, A}) end,
     riak_core_console_writer:write(node_summary(single, CollectFun)).
 
 collect_from_other(Node, {M, F, A}) ->
@@ -223,10 +223,12 @@ node_summary(_Scope, CollectFun) ->
 
     Schema = summary_schema(),
 
-    Header = {text, "Each cell indicates active transfers and the percentage of all known transfers they represent. The 'Total' column is the sum of the active transfers."},
+    Header = {text, "Each cell indicates active transfers and, in parenthesis, the number of all known transfers. The 'Total' column is the sum of the active transfers."},
+    AllNodes = riak_core_ring:all_members(Ring),
+    UpNodes = AllNodes -- DownNodes,
     Table = {table, Schema,
              [ [ format_node_name(Node) | row_summary(Node, KnownStats, ActiveStats) ] ||
-                 Node <- riak_core_ring:ready_members(Ring)]},
+                 Node <- UpNodes]},
     case DownNodes of
         [] ->
             [Header, Table];
@@ -241,14 +243,25 @@ row_summary(Node, Known, Active) ->
     [TotalActive | Cells].
 
 row_summary(_Node, _Known, _Active, [], Accum, Total) ->
-    {Accum, Total};
+    {lists:reverse(Accum), Total};
+
 row_summary(Node, Known, Active, [Type|Tail], Accum, Total) ->
     KeyIn = io_lib:format("~ts:~s:~s", [Node, Type, inbound]),
     KeyOut = io_lib:format("~ts:~s:~s", [Node, Type, outbound]),
     ActiveCount = dict_count_helper(orddict:find(KeyIn, Active)) +
         dict_count_helper(orddict:find(KeyOut, Active)),
+    KnownCount= dict_count_helper(orddict:find(KeyIn, Known)) +
+        dict_count_helper(orddict:find(KeyOut, Known)),
+    CellContents = format_cell_contents(KnownCount, ActiveCount),
     row_summary(Node, Known, Active, Tail,
-                [ActiveCount | Accum], Total + ActiveCount).
+                [CellContents | Accum], Total + ActiveCount).
+
+format_cell_contents(KnownCount, ActiveCount) ->
+    case {KnownCount, ActiveCount} of
+        {0, 0} -> " ";
+        {0, _} -> io_lib:format("~B (Unknown)", [ActiveCount]);
+        _ -> io_lib:format("~B (~B)", [ActiveCount, KnownCount])
+    end.
 
 dict_count_helper({ok, Count}) ->
     Count;
