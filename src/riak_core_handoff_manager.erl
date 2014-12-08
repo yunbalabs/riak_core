@@ -87,7 +87,7 @@ init([]) ->
     %% This one should probably live in a more general spot, like riak_core_sup
     %% (but not a supervisor) or something.
     register_node_finder(),
-    {ok, _} = timer:apply_after(1, ?MODULE, set_concurrency, [Limit]),
+    {ok, _} = timer:apply_after(30000, ?MODULE, set_concurrency, [Limit]),
     {ok, #state{excl=sets:new(), handoffs=[]}}.
 
 add_outbound(HOType,Module,Idx,Node,VnodePid,Opts) ->
@@ -699,30 +699,14 @@ show_handoff_limit([], Flags) ->
     Force = lists:keyfind('force-rpc', 1, Flags),
     case {Node0, Force} of
     {false, false} ->
-        show_handoff_limit();
+        riak_core_status:transfer_limit();
     {{node, Node}, false} ->
-        show_handoff_limit(Node);
+        riak_core_status:transfer_limit(Node);
     {false, _} ->
-        show_rpc_handoff_limit();
+        riak_core_status:rpc_transfer_limit();
     {{node, Node}, _} ->
-        show_rpc_handoff_limit(Node)
+        riak_core_status:rpc_transfer_limit(Node)
     end.
-
-show_handoff_limit() ->
-    Status = riak_core_status:transfer_limit(),
-    print_handoff_limit(Status).
-
-show_handoff_limit(Node) ->
-    Status = riak_core_status:transfer_limit(Node),
-    print_handoff_limit(Status).
-
-show_rpc_handoff_limit() ->
-    Status = riak_core_status:rpc_transfer_limit(),
-    print_handoff_limit(Status).
-
-show_rpc_handoff_limit(Node) ->
-    Status = riak_core_status:rpc_transfer_limit(Node),
-    print_handoff_limit(Status).
 
 %% This function should only be called by riak_cli_console_manager callbacks
 set_transfer_limit(["transfer_limit"], LimitStr, Flags) ->
@@ -761,9 +745,6 @@ set_node_handoff_limit(Node, Limit) ->
                       [Node, Limit])
     end,
     ok.
-
-print_handoff_limit(Status) ->
-    riak_cli:print(Status).
 
 %%%===================================================================
 %%% Tests

@@ -24,8 +24,6 @@
 -export([print/2, print/3,
          create_table/2, autosize_create_table/2]).
 
--include("riak_core_status_types.hrl").
-
 -define(MAX_LINE_LEN, 100).
 
 -spec print(list(), list()) -> ok.
@@ -51,13 +49,13 @@ autosize_create_table(Schema, Rows) ->
     BorderSize = 1 + length(hd(Rows)),
     MaxLineLen = case io:columns() of
 	             %% Leaving an extra space seems to work better
-	             {ok, N} -> N - 1; 
+	             {ok, N} -> N - 1;
 		     {error, enotsup} -> ?MAX_LINE_LEN
 		 end,
     Sizes = get_field_widths(MaxLineLen - BorderSize, [Schema | Rows]),
     Spec = lists:zip(Schema, Sizes),
     create_table(Spec, Rows, MaxLineLen, []).
-	            
+
 -spec create_table(list(), list()) -> iolist().
 create_table(Spec, Rows) ->
     Lengths = get_row_length(Spec, Rows),
@@ -114,7 +112,7 @@ resize_items(Sum, MaxLength, Widths) ->
     [pos_integer()].
 reduce_widths(PerColumn, Total, Widths) ->
     %% Just subtract one character from each column until we run out.
-    {_, NewWidths} = 
+    {_, NewWidths} =
         lists:foldl(fun(Width, {Remaining, NewWidths}) ->
 		        case Remaining of
 			    0 ->
