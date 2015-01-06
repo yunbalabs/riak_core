@@ -157,6 +157,7 @@ test_link(Mod, From, RequestArgs, _Options, StateProps) ->
 init([Mod,
       From={_, ReqId, _},
       RequestArgs]) ->
+    io:format("in riak_core_coverage_fsm:init Mod is ~p~n", [Mod]),
     Exports = Mod:module_info(exports),
     {Request, VNodeSelector, NVal, PrimaryVNodeCoverage,
      NodeCheckService, VNodeMaster, Timeout, ModState} =
@@ -216,11 +217,17 @@ initialize(timeout, StateData0=#state{mod=Mod,
                                       timeout=Timeout,
                                       vnode_master=VNodeMaster,
                                       plan_fun = PlanFun}) ->
-    CoveragePlan = riak_core_coverage_plan:create_plan(VNodeSelector,
-                                                       NVal,
-                                                       PVC,
-                                                       ReqId,
-                                                       NodeCheckService),
+    CoveragePlan = case riak_kv_util:is_li_index_query(Request) of
+		       false -> 
+			   io:format("not an li for ~p apparently~n", [Request]),
+			   riak_core_coverage_plan:create_plan(VNodeSelector,
+							       NVal,
+							       PVC,
+							       ReqId,
+							       NodeCheckService);
+		       true -> 
+			   get_li_coverage_plan(Request)
+		   end,
     case CoveragePlan of
         {error, Reason} ->
             Mod:finish({error, Reason}, ModState);
@@ -244,16 +251,21 @@ waiting_results({{ReqId, VNode}, Results},
                                  req_id=ReqId,
                                  timeout=Timeout,
                                  process_fun = ProcessFun}) ->
+    io:format("in riak_core_coverage:waiting_results (1)~n"),
     case ProcessFun(VNode, Results, ModState) of
         {ok, UpdModState} ->
+	    io:format("in case (1)~n"),
             UpdStateData = StateData#state{mod_state=UpdModState},
             {next_state, waiting_results, UpdStateData, Timeout};
         {done, UpdModState} ->
+	    io:format("in case (2)~n"),
             UpdatedVNodes = lists:delete(VNode, CoverageVNodes),
             case UpdatedVNodes of
                 [] ->
+		    io:format("in case (2)~n"),
                     Mod:finish(clean, UpdModState);
                 _ ->
+		    io:format("in case (2B)~n"),
                     UpdStateData =
                         StateData#state{coverage_vnodes=UpdatedVNodes,
                                         mod_state=UpdModState},
@@ -263,8 +275,10 @@ waiting_results({{ReqId, VNode}, Results},
             Mod:finish(Error, ModState)
     end;
 waiting_results({timeout, _, _}, #state{mod=Mod, mod_state=ModState}) ->
+    io:format("in riak_core_coverage:waiting_results (2)~n"),
     Mod:finish({error, timeout}, ModState);
 waiting_results(timeout, #state{mod=Mod, mod_state=ModState}) ->
+    io:format("in riak_core_coverage:waiting_results (3)~n"),
     Mod:finish({error, timeout}, ModState).
 
 %% @private
@@ -307,6 +321,7 @@ plan_callback(Mod, Exports) ->
     end.
 
 process_results_callback(Mod, Exports) ->
+    io:format("in riak_core_coverage:process_results_callback~n-Mod ~p~n- Exports~p~n", [Mod, Exports]),
     case exports_arity(process_results, 3, Exports) of
         true ->
             fun(VNode, Results, ModState) ->
@@ -321,3 +336,32 @@ exports(Function, Exports) ->
 
 exports_arity(Function, Arity, Exports) ->
     lists:member(Arity, proplists:get_all_values(Function, Exports)).
+
+%% TODO unfix all the things
+%% Start of all the smelly things
+%% copy'n'paste from kiak_kv_gen_fms
+get_option(Name, Options) ->
+    get_option(Name, Options, undefined).
+
+get_option(Name, Options, Default) ->
+    case lists:keyfind(Name, 1, Options) of
+        {_, Val} ->
+            Val;
+        false ->
+            Default
+    end.
+
+get_li_coverage_plan(Request) ->
+    BucketName = riak_kv_util:get_bucket_from_req(Request),
+    Qry = riak_kv_util:get_query_from_req(Request),
+    BKey = riak_kv_util:get_key_from_li_query(Qry),
+    DocIdx = riak_core_util:chash_key({BKey, BucketName}),
+    BucketProps = riak_core_bucket:get_bucket(BucketName),
+    N = get_option(n_val, BucketProps),
+    UpNodes = riak_core_node_watcher:nodes(riak_kv),
+    Perfs = riak_core_apl:get_apl_ann(DocIdx, N, UpNodes),
+    {VNodes, _} = lists:unzip(Perfs),
+    NoFilters = [],
+    _CoveragePlan = {VNodes, NoFilters}.
+
+
