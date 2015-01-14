@@ -265,10 +265,10 @@ update_perform(Tree=#hashtree_tree{snapshot=Snapshot}) ->
 %% local debugging and testing.
 -spec local_compare(tree(), tree()) -> [diff()].
 local_compare(T1, T2) ->
-    RemoteFun = fun(Prefixes, {get_bucket, {Level, Bucket}}) ->
-                        hashtree_tree:get_bucket(Prefixes, Level, Bucket, T2);
-                   (Prefixes, {key_hashes, Segment}) ->
-                        [{_, Hashes}] = hashtree_tree:key_hashes(Prefixes, Segment, T2),
+    RemoteFun = fun(Prefixes, {get_bucket, {Level, Bucket, Tag}}) ->
+                        hashtree_tree:get_bucket(Prefixes, Level, Bucket, T2, Tag);
+                   (Prefixes, {key_hashes, Segment, Tag}) ->
+                        [{_, Hashes}] = hashtree_tree:key_hashes(Prefixes, Segment, T2, Tag),
                         Hashes
                 end,
     HandlerFun = fun(Diff, Acc) -> Acc ++ [Diff] end,
@@ -322,9 +322,13 @@ get_bucket(Prefixes, Level, Bucket, Tree) ->
 %% remote tree during compare.
 -spec key_hashes(tree_node(), integer(), tree()) -> [{integer(), orddict:orddict()}].
 key_hashes(Prefixes, Segment, Tree) ->
+    key_hashes(Prefixes, Segment, Tree, all).
+
+-spec key_hashes(tree_node(), integer(), tree(), hashtree:tag()) -> [{integer(), orddict:orddict()}].
+key_hashes(Prefixes, Segment, Tree, Tag) ->
     case lookup_node(prefixes_to_node_name(Prefixes), Tree) of
         undefined -> [{Segment, orddict:new()}];
-        Node -> hashtree:key_hashes(Node, Segment)
+        Node -> hashtree:key_hashes(Node, Segment, Tag)
     end.
 
 %%%===================================================================

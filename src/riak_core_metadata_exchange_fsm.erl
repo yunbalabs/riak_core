@@ -140,9 +140,9 @@ update({update_error, _Error}, State) ->
     {stop, normal, State}.
 
 exchange(timeout, State=#state{peer=Peer}) ->
-    RemoteFun = fun(Prefixes, {get_bucket, {Level, Bucket}}) ->
+    RemoteFun = fun(Prefixes, {get_bucket, {Level, Bucket, all}}) ->
                         riak_core_metadata_hashtree:get_bucket(Peer, Prefixes, Level, Bucket);
-                   (Prefixes, {key_hashes, Segment}) ->
+                   (Prefixes, {key_hashes, Segment, all}) ->
                         riak_core_metadata_hashtree:key_hashes(Peer, Prefixes, Segment)
                 end,
     HandlerFun = fun(Diff, Acc) ->

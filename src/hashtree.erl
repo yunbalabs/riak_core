@@ -125,7 +125,7 @@
          segments/1,
          width/1,
          mem_levels/1]).
--export([compare2/4]).
+-export([compare2/4, compare2/5]).
 
 -ifdef(TEST).
 -export([local_compare/2]).
@@ -167,11 +167,16 @@
 
 -type remote_fun() :: fun((get_bucket | key_hashes | start_exchange_level |
                            start_exchange_segments | init | final,
-                           {integer(), integer()} | integer() | term()) -> any()).
+                           {integer(), integer(), tag()} | {integer(), tag()} | term()) -> any()).
 
 -type acc_fun(Acc) :: fun(([keydiff()], Acc) -> Acc).
 
 -type select_fun(T) :: fun((orddict()) -> T).
+
+%% Tagging fun takes a Key and returns a set of tags for that key.
+%% The tag 'all' is always included implicitly.
+-type tag() :: atom().
+-type tagging_fun() :: fun((binary()) -> [tag()]).
 
 -record(state, {id             :: tree_id_bin(),
                 index          :: index(),
@@ -183,6 +188,7 @@
                 ref            :: term(),
                 path           :: string(),
                 itr            :: term(),
+                tag_fun = fun default_tag_fun/1 :: tagging_fun(),
                 write_buffer   :: [{put, binary(), binary()} | {delete, binary()}],
                 write_buffer_count :: integer(),
                 dirty_segments :: array()
@@ -233,6 +239,7 @@ new({Index,TreeId}, LinkedStore, Options) ->
     NumSegments = proplists:get_value(segments, Options, ?NUM_SEGMENTS),
     Width = proplists:get_value(width, Options, ?WIDTH),
     MemLevels = proplists:get_value(mem_levels, Options, ?MEM_LEVELS),
+    TaggingFun = proplists:get_value(tag_fun, Options, fun default_tag_fun/1),
     NumLevels = erlang:trunc(math:log(NumSegments) / math:log(Width)) + 1,
     State = #state{id=encode_id(TreeId),
                    index=Index,
@@ -240,6 +247,7 @@ new({Index,TreeId}, LinkedStore, Options) ->
                    segments=NumSegments,
                    width=Width,
                    mem_levels=MemLevels,
+                   tag_fun = TaggingFun,
                    %% dirty_segments=gb_sets:new(),
                    dirty_segments=bitarray_new(NumSegments),
                    write_buffer=[],
@@ -392,10 +400,10 @@ rehash_perform(State) ->
 
 -spec top_hash(hashtree()) -> [] | [{0, binary()}].
 top_hash(State) ->
-    get_bucket(1, 0, State).
+    get_bucket(1, 0, State, all).
 
 compare(Tree, Remote, AccFun, Acc) ->
-    compare(1, 0, Tree, Remote, AccFun, Acc).
+    compare(1, 0, Tree, Remote, AccFun, Acc, all).
 
 -spec levels(hashtree()) -> pos_integer().
 levels(#state{levels=L}) ->
@@ -455,21 +463,45 @@ estimate_keys(#state{segments=Segments}, CurrentSegment, Keys, MaxKeys)
     {ok, (Keys * Segments) div CurrentSegment};
 
 estimate_keys(State, CurrentSegment, Keys, MaxKeys) ->
-    [{_, KeyHashes2}] = key_hashes(State, CurrentSegment),
-    estimate_keys(State, CurrentSegment + 1, Keys + length(KeyHashes2), MaxKeys).
+    case key_hashes(State, CurrentSegment) of
+        [{_, KeyHashes2}] ->
+            estimate_keys(State, CurrentSegment + 1, Keys + length(KeyHashes2), MaxKeys);
+        [] ->
+            estimate_keys(State, CurrentSegment + 1, Keys, MaxKeys)
+    end.
 
 -spec key_hashes(hashtree(), integer()) -> [{integer(), orddict()}].
 key_hashes(State, Segment) ->
-    multi_select_segment(State, [Segment], fun(X) -> X end).
+    key_hashes(State, Segment, all).
+
+-spec key_hashes(hashtree(), integer(), tag()) -> [{integer(), orddict()}].
+key_hashes(State, Segment, all) ->
+    multi_select_segment(State, [Segment], fun(X) -> X end);
+key_hashes(State, Segment, Tag) ->
+    Tagger = State#state.tag_fun,
+    KeysAndHashes = multi_select_segment(State, [Segment], fun(X) -> X end),
+    lists:filter(fun({K,_V}) ->
+                         lists:member(Tag, Tagger(K))
+                 end,
+                 KeysAndHashes).
 
 -spec get_bucket(integer(), integer(), hashtree()) -> orddict().
 get_bucket(Level, Bucket, State) ->
-    case Level =< State#state.mem_levels of
+    get_bucket(Level, Bucket, State, all).
+
+
+-spec get_bucket(integer(), integer(), hashtree(), tag()) -> orddict().
+get_bucket(Level, Bucket, State, Tag) ->
+    Dict = case Level =< State#state.mem_levels of
         true ->
             get_memory_bucket(Level, Bucket, State);
         false ->
             get_disk_bucket(Level, Bucket, State)
-    end.
+    end,
+    lists:flatten( [ case lists:keyfind(Tag, 1, HashByTag) of
+                         false -> [];
+                         {Tag, Hash} -> {Sub, Hash}
+                     end || {Sub, HashByTag} <- Dict] ).
 
 %%%===================================================================
 %%% Internal functions
@@ -589,7 +621,7 @@ get_env(Key, Default) ->
     app_helper:get_env(riak_kv, Key, CoreEnv).
 
 -spec update_levels(integer(),
-                    [{integer(), [{integer(), binary()}]}],
+                    [{integer(), [{integer(), [{tag(),binary()}]}]}],
                     hashtree()) -> hashtree().
 update_levels(0, _, State) ->
     State;
@@ -602,7 +634,7 @@ update_levels(Level, Groups, State) ->
                                                     Hashes1,
                                                     Hashes2),
                             StateAcc2 = set_bucket(Level, Bucket, Hashes3, StateAcc),
-                            NewBucket = {Bucket, hash(Hashes3)},
+                            NewBucket = {Bucket, hash_bucket(Hashes3)},
                             {StateAcc2, [NewBucket | BucketsAcc]}
                     end, {State, []}, Groups),
     Groups2 = group(NewBuckets, State#state.width),
@@ -618,8 +650,11 @@ update_levels(Level, Groups, State) ->
 %%   [{1,[{1,H1}, {2,H2}, {3,H3}, {4,H4}]},
 %%    {2,[{5,H5}, {6,H6}, {7,H7}, {8,H8}]}]
 %%
--spec group([{integer(), binary()}], pos_integer())
-           -> [{integer(), [{integer(), binary()}]}].
+%% When adding tagged AAE, the H1..H8 values in the above are changed
+%% to orddicts [{ Tag, Hash }].
+%%
+-spec group([{integer(), any()}], pos_integer())
+           -> [{integer(), [{integer(), any()}]}].
 group(L, Width) ->
     {FirstId, _} = hd(L),
     FirstBucket = FirstId div Width,
@@ -705,9 +740,52 @@ encode_bucket(TreeId, Level, Bucket) ->
 encode_meta(Key) ->
     <<$m,Key/binary>>.
 
--spec hashes(hashtree(), list('*'|integer())) -> [{integer(), binary()}].
+-spec hashes(hashtree(), list('*'|integer())) -> [{integer(), [{tag(), binary()}]}].
 hashes(State, Segments) ->
-    multi_select_segment(State, Segments, fun hash/1).
+    HashFun = fun(KVs) -> tagged_hash(State, KVs) end,
+    multi_select_segment(State, Segments, HashFun).
+
+-spec tagged_hash( hashtree(), [{binary(), binary()}] ) -> [{tag(), binary()}]. 
+tagged_hash(State, KVs) ->
+    TagFun = State#state.tag_fun,
+    Tag2KVs =
+        lists:foldl(fun(KV={HK,_}, TagDict) ->
+                            case safe_decode(HK) of
+                                {bad, _, _} -> TagDict;
+                                {_, _, K} ->
+                                    Tags = lists:usort([all|TagFun(K)]),
+                                    lists:foldl( fun(Tag, TagDict2) ->
+                                                         orddict:update(Tag,
+                                                                        fun(L) -> [KV|L] end,
+                                                                        [KV],
+                                                                        TagDict2)
+                                                 end,
+                                                 TagDict,
+                                                 Tags)
+                            end
+                    end,
+                    orddict:new(),
+                    KVs),
+
+    [ {Tag, hash(lists:reverse(KVsForTag))} || {Tag, KVsForTag} <- Tag2KVs ].
+
+-spec hash_bucket( [{non_neg_integer(), [{tag(), binary()}]}] ) -> [{tag(), binary()}].
+hash_bucket(SubToTaggedHash) ->
+    TagToHashable =
+        lists:foldl(fun({SubID, TagToHash}, Acc) ->
+                            lists:foldl(fun({Tag,Hash}, Acc2) ->
+                                                orddict:update(Tag,
+                                                               fun(L) -> [{SubID,Hash}|L] end,
+                                                               [{SubID,Hash}],
+                                                               Acc2)
+                                        end,
+                                        Acc,
+                                        TagToHash)
+                    end,
+                    orddict:new(),
+                    SubToTaggedHash),
+    [ {Tag, hash(lists:reverse(Sub2Hash))} || {Tag,Sub2Hash} <- TagToHashable ].
+
 
 -spec snapshot(hashtree()) -> hashtree().
 snapshot(State) ->
@@ -841,42 +919,47 @@ iterate({ok, K, V}, IS=#itr_state{itr=Itr,
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 compare2(Tree, Remote, AccFun, Acc) ->
+    compare2(Tree, Remote, AccFun, Acc, all).
+
+compare2(Tree, Remote, AccFun, Acc, Tag) ->
     Final = Tree#state.levels + 1,
-    Local = fun(get_bucket, {L, B}) ->
-                    get_bucket(L, B, Tree);
-               (key_hashes, Segment) ->
-                    [{_, KeyHashes2}] = key_hashes(Tree, Segment),
-                    KeyHashes2
+    Local = fun(get_bucket, {L, B, Tag2}) when Tag =:= Tag2 ->
+                    get_bucket(L, B, Tree, Tag2);
+               (key_hashes, {Segment, Tag2}) when Tag =:= Tag2 ->
+                    case key_hashes(Tree, Segment, Tag2) of
+                        [{_, KeyHashes2}] -> KeyHashes2;
+                        [] -> []
+                    end
             end,
     Opts = [],
-    exchange(1, [0], Final, Local, Remote, AccFun, Acc, Opts).
+    exchange(1, [0], Final, Local, Remote, AccFun, Acc, Opts, Tag).
 
-exchange(_Level, [], _Final, _Local, _Remote, _AccFun, Acc, _Opts) ->
+exchange(_Level, [], _Final, _Local, _Remote, _AccFun, Acc, _Opts, _Tag) ->
     Acc;
-exchange(Level, Diff, Final, Local, Remote, AccFun, Acc, Opts) ->
+exchange(Level, Diff, Final, Local, Remote, AccFun, Acc, Opts, Tag) ->
     if Level =:= Final ->
-            exchange_final(Level, Diff, Local, Remote, AccFun, Acc, Opts);
+            exchange_final(Level, Diff, Local, Remote, AccFun, Acc, Opts, Tag);
        true ->
-            Diff2 = exchange_level(Level, Diff, Local, Remote, Opts),
-            exchange(Level+1, Diff2, Final, Local, Remote, AccFun, Acc, Opts)
+            Diff2 = exchange_level(Level, Diff, Local, Remote, Opts, Tag),
+            exchange(Level+1, Diff2, Final, Local, Remote, AccFun, Acc, Opts, Tag)
     end.
 
-exchange_level(Level, Buckets, Local, Remote, _Opts) ->
-    Remote(start_exchange_level, {Level, Buckets}),
+exchange_level(Level, Buckets, Local, Remote, _Opts, Tag) ->
+    Remote(start_exchange_level, {Level, Buckets, Tag}),
     lists:flatmap(fun(Bucket) ->
-                          A = Local(get_bucket, {Level, Bucket}),
-                          B = Remote(get_bucket, {Level, Bucket}),
+                          A = Local(get_bucket, {Level, Bucket, Tag}),
+                          B = Remote(get_bucket, {Level, Bucket, Tag}),
                           Delta = riak_ensemble_util:orddict_delta(lists:keysort(1, A),
                                                                    lists:keysort(1, B)),
                           Diffs = Delta,
                           [BK || {BK, _} <- Diffs]
                   end, Buckets).
 
-exchange_final(_Level, Segments, Local, Remote, AccFun, Acc0, _Opts) ->
-    Remote(start_exchange_segments, Segments),
+exchange_final(_Level, Segments, Local, Remote, AccFun, Acc0, _Opts, Tag) ->
+    Remote(start_exchange_segments, {Segments, Tag}),
     lists:foldl(fun(Segment, Acc) ->
-                        A = Local(key_hashes, Segment),
-                        B = Remote(key_hashes, Segment),
+                        A = Local(key_hashes, {Segment, Tag}),
+                        B = Remote(key_hashes, {Segment, Tag}),
                         Delta = riak_ensemble_util:orddict_delta(lists:keysort(1, A),
                                                                  lists:keysort(1, B)),
                         Keys = [begin
@@ -889,27 +972,30 @@ exchange_final(_Level, Segments, Local, Remote, AccFun, Acc0, _Opts) ->
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
--spec compare(integer(), integer(), hashtree(), remote_fun(), acc_fun(X), X) -> X.
-compare(Level, Bucket, Tree, Remote, AccFun, KeyAcc) when Level == Tree#state.levels+1 ->
-    Keys = compare_segments(Bucket, Tree, Remote),
+-spec compare(integer(), integer(), hashtree(), remote_fun(), acc_fun(X), X, tag()) -> X.
+compare(Level, Bucket, Tree, Remote, AccFun, KeyAcc, Tag) when Level == Tree#state.levels+1 ->
+    Keys = compare_segments(Bucket, Tree, Remote, Tag),
     AccFun(Keys, KeyAcc);
-compare(Level, Bucket, Tree, Remote, AccFun, KeyAcc) ->
-    HL1 = get_bucket(Level, Bucket, Tree),
-    HL2 = Remote(get_bucket, {Level, Bucket}),
+compare(Level, Bucket, Tree, Remote, AccFun, KeyAcc, Tag) ->
+    HL1 = get_bucket(Level, Bucket, Tree, Tag),
+    HL2 = Remote(get_bucket, {Level, Bucket, Tag}),
     Union = lists:ukeysort(1, HL1 ++ HL2),
     Inter = ordsets:intersection(ordsets:from_list(HL1),
                                  ordsets:from_list(HL2)),
     Diff = ordsets:subtract(Union, Inter),
     KeyAcc3 =
         lists:foldl(fun({Bucket2, _}, KeyAcc2) ->
-                            compare(Level+1, Bucket2, Tree, Remote, AccFun, KeyAcc2)
+                            compare(Level+1, Bucket2, Tree, Remote, AccFun, KeyAcc2, Tag)
                     end, KeyAcc, Diff),
     KeyAcc3.
 
--spec compare_segments(integer(), hashtree(), remote_fun()) -> [keydiff()].
-compare_segments(Segment, Tree=#state{id=Id}, Remote) ->
-    [{_, KeyHashes1}] = key_hashes(Tree, Segment),
-    KeyHashes2 = Remote(key_hashes, Segment),
+-spec compare_segments(integer(), hashtree(), remote_fun(), tag()) -> [keydiff()].
+compare_segments(Segment, Tree=#state{id=Id}, Remote, Tag) ->
+    KeyHashes1 = case key_hashes(Tree, Segment, Tag) of
+                     [{_, KeyHashesFound}] -> KeyHashesFound;
+                     [] -> []
+                 end,
+    KeyHashes2 = Remote(key_hashes, {Segment, Tag}),
     HL1 = orddict:from_list(KeyHashes1),
     HL2 = orddict:from_list(KeyHashes2),
     Delta = orddict_delta(HL1, HL2),
@@ -991,6 +1077,11 @@ expand(V, N, Acc) ->
                 Acc
         end,
     expand(V bsr 1, N+1, Acc2).
+
+%% Tagging
+
+default_tag_fun(_Key) ->
+    [].
 
 %%%===================================================================
 %%% Experiments
@@ -1091,15 +1182,15 @@ do_remote(N) ->
     B4 = update_tree(B3),
 
     %% Compare with remote tree through message passing
-    Remote = fun(get_bucket, {L, B}) ->
-                     Other ! {get_bucket, self(), L, B},
+    Remote = fun(get_bucket, {L, B, T}) ->
+                     Other ! {get_bucket, self(), L, B, T},
                      receive {remote, X} -> X end;
-                (start_exchange_level, {_Level, _Buckets}) ->
+                (start_exchange_level, {_Level, _Buckets, _T}) ->
                      ok;
-                (start_exchange_segments, _Segments) ->
+                (start_exchange_segments, {_Segments, _T}) ->
                      ok;
-                (key_hashes, Segment) ->
-                     Other ! {key_hashes, self(), Segment},
+                (key_hashes, {Segment, Tag}) ->
+                     Other ! {key_hashes, self(), Segment, Tag},
                      receive {remote, X} -> X end
              end,
     KeyDiff = compare(B4, Remote),
@@ -1111,14 +1202,16 @@ do_remote(N) ->
 
 message_loop(Tree, Msgs, Bytes) ->
     receive
-        {get_bucket, From, L, B} ->
-            Reply = get_bucket(L, B, Tree),
+        {get_bucket, From, L, B, Tag} ->
+            Reply = get_bucket(L, B, Tree, Tag),
             From ! {remote, Reply},
             Size = byte_size(term_to_binary(Reply)),
             message_loop(Tree, Msgs+1, Bytes+Size);
-        {key_hashes, From, Segment} ->
-            [{_, KeyHashes2}] = key_hashes(Tree, Segment),
-            Reply = KeyHashes2,
+        {key_hashes, From, Segment, Tag} ->
+            Reply = case key_hashes(Tree, Segment, Tag) of
+                        [{_, KeyHashes2}] -> KeyHashes2;
+                        [] -> []
+                    end,
             From ! {remote, Reply},
             Size = byte_size(term_to_binary(Reply)),
             message_loop(Tree, Msgs+1, Bytes+Size);
@@ -1157,20 +1250,26 @@ peval(L) ->
 
 -spec local_compare(hashtree(), hashtree()) -> [keydiff()].
 local_compare(T1, T2) ->
-    Remote = fun(get_bucket, {L, B}) ->
-                     get_bucket(L, B, T2);
-                (start_exchange_level, {_Level, _Buckets}) ->
+    local_compare(T1, T2, all).
+
+local_compare(T1, T2, Tag) ->
+    Remote = fun(get_bucket, {L, B, Tag1}) when Tag1=:=Tag ->
+                     get_bucket(L, B, T2, Tag);
+                (start_exchange_level, {_Level, _Buckets, _Tag}) ->
                      ok;
-                (start_exchange_segments, _Segments) ->
+                (start_exchange_segments, {_Segments, _Tag}) ->
                      ok;
-                (key_hashes, Segment) ->
-                     [{_, KeyHashes2}] = key_hashes(T2, Segment),
-                     KeyHashes2
+                (key_hashes, {Segment, Tag1}) when Tag1=:=Tag ->
+                     case key_hashes(T2, Segment, Tag) of
+                         [{_, KeyHashes2}] ->
+                             KeyHashes2;
+                         [] -> []
+                     end
              end,
     AccFun = fun(Keys, KeyAcc) ->
                      Keys ++ KeyAcc
              end,
-    compare2(T1, Remote, AccFun, []).
+    compare2(T1, Remote, AccFun, [], Tag).
 
 -spec compare(hashtree(), remote_fun()) -> [keydiff()].
 compare(Tree, Remote) ->
@@ -1209,6 +1308,25 @@ delta_test() ->
     Diff2 = local_compare(T2, T1),
     ?assertEqual([{missing, <<"1">>}, {remote_missing, <<"2">>}], Diff2),
     ok.
+
+tag_test() ->
+    A0 = insert(<<"10">>, <<"42">>, new({0,0}, [{tag_fun, fun(_)->[x,z] end}])),
+    B0 = insert(<<"10">>, <<"52">>, new({0,0}, [{tag_fun, fun(_)->[x,y] end}])),
+    A1 = update_tree(A0),
+    B1 = update_tree(B0),
+    KeyDiffX = local_compare(A1, B1, x),
+    KeyDiffY = local_compare(A1, B1, y),
+    KeyDiffZ = local_compare(A1, B1, z),
+    close(A1),
+    close(B1),
+    destroy(A1),
+    destroy(B1),
+    ?assertEqual([{different, <<"10">>}], KeyDiffX),
+    ?assertEqual([{missing, <<"10">>}], KeyDiffY),
+    ?assertEqual([{remote_missing, <<"10">>}], KeyDiffZ),
+    ok.
+
+
 -endif.
 
 %%%===================================================================
