@@ -88,7 +88,7 @@ prettyprint_users(Users0, Width) ->
     prettyprint_permissions(Users, Width).
 
 print_sources() ->
-    Sources = riak_core_metadata:fold(fun({{Username, CIDR}, [{Source, Options}]}, Acc) ->
+    Sources = xcmd:fold(fun({{Username, CIDR}, [{Source, Options}]}, Acc) ->
                                               [{Username, CIDR, Source, Options}|Acc];
                                          ({{_, _}, [?TOMBSTONE]}, Acc) ->
                                               Acc
@@ -116,7 +116,7 @@ print_user(User) ->
     end.
 
 print_users() ->
-    Users = riak_core_metadata:fold(fun({_Username, [?TOMBSTONE]}, Acc) ->
+    Users = xcmd:fold(fun({_Username, [?TOMBSTONE]}, Acc) ->
                                             Acc;
                                         ({Username, Options}, Acc) ->
                                     [{Username, Options}|Acc]
@@ -162,7 +162,7 @@ print_group(Group) ->
     end.
 
 print_groups() ->
-    Groups = riak_core_metadata:fold(fun({_Groupname, [?TOMBSTONE]}, Acc) ->
+    Groups = xcmd:fold(fun({_Groupname, [?TOMBSTONE]}, Acc) ->
                                              Acc;
                                         ({Groupname, Options}, Acc) ->
                                     [{Groupname, Options}|Acc]
@@ -404,7 +404,7 @@ authenticate(Username, Password, ConnInfo) ->
         undefined ->
             {error, unknown_user};
         UserData ->
-            Sources0 = riak_core_metadata:fold(fun({{Un, CIDR}, [{Source, Options}]}, Acc) ->
+            Sources0 = xcmd:fold(fun({{Un, CIDR}, [{Source, Options}]}, Acc) ->
                                                       [{Un, CIDR, Source, Options}|Acc];
                                                   ({{_, _}, [?TOMBSTONE]}, Acc) ->
                                                        Acc
@@ -510,7 +510,7 @@ add_role(Name, Options, ExistenceFun, Prefix) ->
                 false ->
                     case validate_options(Options) of
                         {ok, NewOptions} ->
-                            riak_core_metadata:put(Prefix, Name, NewOptions),
+                            xcmd:put(Prefix, Name, NewOptions),
                             ok;
                         Error ->
                             Error
@@ -538,7 +538,7 @@ alter_user(Username, Options) ->
                     MergedOptions = lists:ukeymerge(1, lists:sort(NewOptions),
                                                     lists:sort(UserData)),
 
-                    riak_core_metadata:put({<<"security">>, <<"users">>},
+                    xcmd:put({<<"security">>, <<"users">>},
                                            Name, MergedOptions),
                     ok;
                 Error ->
@@ -561,7 +561,7 @@ alter_group(Groupname, Options) ->
                     MergedOptions = lists:ukeymerge(1, lists:sort(NewOptions),
                                                     lists:sort(GroupData)),
 
-                    riak_core_metadata:put({<<"security">>, <<"groups">>},
+                    xcmd:put({<<"security">>, <<"groups">>},
                                            Name, MergedOptions),
                     ok;
                 Error ->
@@ -579,15 +579,15 @@ del_user(Username) ->
         false ->
             {error, {unknown_user, Name}};
         true ->
-            riak_core_metadata:delete({<<"security">>, <<"users">>},
+            xcmd:delete({<<"security">>, <<"users">>},
                                       Name),
             %% delete any associated grants, so if a user with the same name
             %% is added again, they don't pick up these grants
             Prefix = {<<"security">>, <<"usergrants">>},
-            riak_core_metadata:fold(fun({Key, _Value}, Acc) ->
+            xcmd:fold(fun({Key, _Value}, Acc) ->
                                             %% apparently destructive
                                             %% iteration is allowed
-                                            riak_core_metadata:delete(Prefix, Key),
+                                            xcmd:delete(Prefix, Key),
                                             Acc
                                     end, undefined,
                                     Prefix,
@@ -606,15 +606,15 @@ del_group(Groupname) ->
         false ->
             {error, {unknown_group, Name}};
         true ->
-            riak_core_metadata:delete({<<"security">>, <<"groups">>},
+            xcmd:delete({<<"security">>, <<"groups">>},
                                       Name),
             %% delete any associated grants, so if a user with the same name
             %% is added again, they don't pick up these grants
             Prefix = {<<"security">>, <<"groupgrants">>},
-            riak_core_metadata:fold(fun({Key, _Value}, Acc) ->
+            xcmd:fold(fun({Key, _Value}, Acc) ->
                                             %% apparently destructive
                                             %% iteration is allowed
-                                            riak_core_metadata:delete(Prefix, Key),
+                                            xcmd:delete(Prefix, Key),
                                             Acc
                                     end, undefined,
                                     Prefix,
@@ -712,7 +712,7 @@ add_source(all, CIDR, Source, Options) ->
 
     %% TODO check if there are already 'user' sources for this CIDR
     %% with the same source
-    riak_core_metadata:put({<<"security">>, <<"sources">>},
+    xcmd:put({<<"security">>, <<"sources">>},
                            {all, anchor_mask(CIDR)},
                            {Source, Options}),
     ok;
@@ -744,19 +744,19 @@ add_source(Users, CIDR, Source, Options) ->
 
 del_source(all, CIDR) ->
     %% all is always valid
-    riak_core_metadata:delete({<<"security">>, <<"sources">>},
+    xcmd:delete({<<"security">>, <<"sources">>},
                               {all, anchor_mask(CIDR)}),
     ok;
 del_source(Users, CIDR) ->
     UserList = lists:map(fun name2bin/1, Users),
-    _ = [riak_core_metadata:delete({<<"security">>, <<"sources">>},
+    _ = [xcmd:delete({<<"security">>, <<"sources">>},
                                    {User, anchor_mask(CIDR)}) || User <- UserList],
     ok.
 
 is_enabled() ->
     try riak_core_capability:get({riak_core, security}) of
         true ->
-           case  riak_core_metadata:get({<<"security">>, <<"status">>},
+           case  xcmd:get({<<"security">>, <<"status">>},
                                         enabled) of
                true ->
                    true;
@@ -773,14 +773,14 @@ is_enabled() ->
 enable() ->
     case riak_core_capability:get({riak_core, security}) of
         true ->
-           riak_core_metadata:put({<<"security">>, <<"status">>},
+           xcmd:put({<<"security">>, <<"status">>},
                                         enabled, true);
         false ->
             not_supported
     end.
 
 get_ciphers() ->
-    case riak_core_metadata:get({<<"security">>, <<"config">>}, ciphers) of
+    case xcmd:get({<<"security">>, <<"config">>}, ciphers) of
         undefined ->
             ?DEFAULT_CIPHER_LIST;
         Result ->
@@ -808,17 +808,17 @@ set_ciphers(CipherList) ->
             io:format("No known or supported ciphers in list.~n"),
             error;
         _ ->
-            riak_core_metadata:put({<<"security">>, <<"config">>}, ciphers,
+            xcmd:put({<<"security">>, <<"config">>}, ciphers,
                                    CipherList),
             ok
     end.
 
 disable() ->
-    riak_core_metadata:put({<<"security">>, <<"status">>},
+    xcmd:put({<<"security">>, <<"status">>},
                            enabled, false).
 
 status() ->
-    Enabled = riak_core_metadata:get({<<"security">>, <<"status">>}, enabled,
+    Enabled = xcmd:get({<<"security">>, <<"status">>}, enabled,
                                     [{default, false}]),
     case Enabled of
         true ->
@@ -846,7 +846,7 @@ add_revoke_int([], _, _) ->
     ok;
 add_revoke_int([{Name, RoleType}|Roles], Bucket, Permissions) ->
     Prefix = metadata_grant_prefix(RoleType),
-    RoleGrants = riak_core_metadata:get(Prefix, {Name, Bucket}),
+    RoleGrants = xcmd:get(Prefix, {Name, Bucket}),
 
     %% check if there is currently a GRANT we can revoke
     case RoleGrants of
@@ -862,9 +862,9 @@ add_revoke_int([{Name, RoleType}|Roles], Bucket, Permissions) ->
 
             case NewPerms of
                 [] ->
-                    riak_core_metadata:delete(Prefix, {Name, Bucket});
+                    xcmd:delete(Prefix, {Name, Bucket});
                 _ ->
-                    riak_core_metadata:put(Prefix, {Name, Bucket}, NewPerms)
+                    xcmd:put(Prefix, {Name, Bucket}, NewPerms)
             end,
             add_revoke_int(Roles, Bucket, Permissions)
     end.
@@ -872,7 +872,7 @@ add_revoke_int([{Name, RoleType}|Roles], Bucket, Permissions) ->
 add_source_int([], _, _, _) ->
     ok;
 add_source_int([User|Users], CIDR, Source, Options) ->
-    riak_core_metadata:put({<<"security">>, <<"sources">>}, {User, CIDR},
+    xcmd:put({<<"security">>, <<"sources">>}, {User, CIDR},
                            {Source, Options}),
     add_source_int(Users, CIDR, Source, Options).
 
@@ -880,7 +880,7 @@ add_grant_int([], _, _) ->
     ok;
 add_grant_int([{Name, RoleType}|Roles], Bucket, Permissions) ->
     Prefix = metadata_grant_prefix(RoleType),
-    BucketPermissions = case riak_core_metadata:get(Prefix, {Name, Bucket}) of
+    BucketPermissions = case xcmd:get(Prefix, {Name, Bucket}) of
                             undefined ->
                                 [];
                             Perms ->
@@ -888,7 +888,7 @@ add_grant_int([{Name, RoleType}|Roles], Bucket, Permissions) ->
                         end,
     NewPerms = lists:umerge(lists:sort(BucketPermissions),
                             lists:sort(Permissions)),
-    riak_core_metadata:put(Prefix, {Name, Bucket}, NewPerms),
+    xcmd:put(Prefix, {Name, Bucket}, NewPerms),
     add_grant_int(Roles, Bucket, Permissions).
 
 match_grant(Bucket, Grants) ->
@@ -930,7 +930,7 @@ get_context(Username) when is_binary(Username) ->
 
 accumulate_grants(Role, Type) ->
     %% The 'all' grants always apply
-    All = riak_core_metadata:fold(fun({{_R, _Bucket}, [?TOMBSTONE]}, A) ->
+    All = xcmd:fold(fun({{_R, _Bucket}, [?TOMBSTONE]}, A) ->
                                           A;
                                      ({{_R, Bucket}, [Permissions]}, A) ->
                                           [{{<<"group/all">>, Bucket},
@@ -951,7 +951,7 @@ accumulate_grants([Role|Roles], Seen, Acc, Type) ->
 
     Prefix = metadata_grant_prefix(Type),
 
-    Grants = riak_core_metadata:fold(fun({{_R, _Bucket}, [?TOMBSTONE]}, A) ->
+    Grants = xcmd:fold(fun({{_R, _Bucket}, [?TOMBSTONE]}, A) ->
                                              A;
                                         ({{R, Bucket}, [Permissions]}, A) ->
                                              [{{concat_role(Type, R), Bucket},
@@ -1187,7 +1187,7 @@ delete_group_from_roles(Groupname) ->
     delete_group_from_roles(Groupname, <<"groups">>).
 
 delete_group_from_roles(Groupname, RoleType) ->
-    riak_core_metadata:fold(fun({_, [?TOMBSTONE]}, Acc) ->
+    xcmd:fold(fun({_, [?TOMBSTONE]}, Acc) ->
                                     Acc;
                                ({Rolename, [Options]}, Acc) ->
                                     case proplists:get_value("groups", Options) of
@@ -1198,7 +1198,7 @@ delete_group_from_roles(Groupname, RoleType) ->
                                                               Groups) of
                                                 true ->
                                                     NewGroups = lists:keystore("groups", 1, Options, {"groups", Groups -- [Groupname]}),
-                                                    riak_core_metadata:put({<<"security">>,
+                                                    xcmd:put({<<"security">>,
                                                                             RoleType},
                                                                            Rolename,
                                                                            NewGroups),
@@ -1212,9 +1212,9 @@ delete_group_from_roles(Groupname, RoleType) ->
 
 
 delete_user_from_sources(Username) ->
-    riak_core_metadata:fold(fun({{User, _CIDR}=Key, _}, Acc)
+    xcmd:fold(fun({{User, _CIDR}=Key, _}, Acc)
                                   when User == Username ->
-                                    riak_core_metadata:delete({<<"security">>,
+                                    xcmd:delete({<<"security">>,
                                                                <<"sources">>},
                                                               Key),
                                     Acc;
@@ -1231,7 +1231,7 @@ unknown_roles(RoleList, user) ->
 unknown_roles(RoleList, group) ->
     unknown_roles(RoleList, <<"groups">>);
 unknown_roles(RoleList, RoleType) ->
-    riak_core_metadata:fold(fun({Rolename, _}, Acc) ->
+    xcmd:fold(fun({Rolename, _}, Acc) ->
                                     Acc -- [Rolename]
                             end, RoleList, {<<"security">>,
                                             RoleType}).
@@ -1283,9 +1283,9 @@ role_details(Rolename, user) ->
 role_details(Rolename, group) ->
     role_details(Rolename, <<"groups">>);
 role_details(Rolename, RoleType) when is_list(Rolename) ->
-    riak_core_metadata:get({<<"security">>, RoleType}, name2bin(Rolename));
+    xcmd:get({<<"security">>, RoleType}, name2bin(Rolename));
 role_details(Rolename, RoleType) ->
-    riak_core_metadata:get({<<"security">>, RoleType}, Rolename).
+    xcmd:get({<<"security">>, RoleType}, Rolename).
 
 user_exists(Username) ->
     role_exists(Username, user).

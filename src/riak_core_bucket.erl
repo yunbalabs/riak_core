@@ -79,7 +79,7 @@ set_bucket(StoreFun, Bucket, BucketProps0) ->
     end.
 
 set_bucket_in_metadata(Bucket, BucketMeta) ->
-    riak_core_metadata:put(?METADATA_PREFIX, bucket_key(Bucket), BucketMeta).
+    xcmd:put(?METADATA_PREFIX, bucket_key(Bucket), BucketMeta).
 
 set_bucket_in_ring(Bucket, BucketMeta) ->
     F = fun(Ring, _Args) ->
@@ -111,7 +111,7 @@ get_bucket({<<"default">>, Name}) ->
     get_bucket(Name);
 get_bucket({Type, _Name}=Bucket) ->
     TypeMeta = riak_core_bucket_type:get(Type),
-    BucketMeta = riak_core_metadata:get(?METADATA_PREFIX, bucket_key(Bucket),
+    BucketMeta = xcmd:get(?METADATA_PREFIX, bucket_key(Bucket),
                                         [{resolver, fun riak_core_bucket_props:resolve/2}]),
     case merge_type_props(TypeMeta, BucketMeta) of
         {error, _}=Error -> Error;
@@ -152,7 +152,7 @@ merge_type_props(TypeMeta, BucketMeta) when is_list(TypeMeta) andalso
 reset_bucket({<<"default">>, Name}) ->
     reset_bucket(Name);
 reset_bucket({_Type, _Name}=Bucket) ->
-    riak_core_metadata:delete(?METADATA_PREFIX, bucket_key(Bucket));
+    xcmd:delete(?METADATA_PREFIX, bucket_key(Bucket));
 reset_bucket(Bucket) ->
     F = fun(Ring, _Args) ->
                 {new_ring, riak_core_ring:remove_meta(bucket_key(Bucket), Ring)}
@@ -167,7 +167,7 @@ reset_bucket(Bucket) ->
 get_buckets(Ring) ->
     RingNames = riak_core_ring:get_buckets(Ring),
     RingBuckets = [get_bucket(Name, Ring) || Name <- RingNames],
-    MetadataBuckets = riak_core_metadata:fold(fun({_, undefined}, Acc) ->
+    MetadataBuckets = xcmd:fold(fun({_, undefined}, Acc) ->
                                                       Acc;
                                                  ({_Key, Props}, Acc) ->
                                                       [Props | Acc]

@@ -200,7 +200,7 @@ get_bucket_type(BucketType, Default, RequireActive) ->
     %% new claimant happens before the original propogates. In this
     %% case we want the newest create. Updates can also result in
     %% conflicts so we choose the most recent as well.
-    case riak_core_metadata:get(?BUCKET_TYPE_PREFIX, BucketType,
+    case xcmd:get(?BUCKET_TYPE_PREFIX, BucketType,
                                 [{default, Default}]) of
         Default -> Default;
         Props -> maybe_filter_inactive_type(RequireActive, Default, Props)
@@ -213,9 +213,9 @@ update_bucket_type(BucketType, Props) ->
     gen_server:call(claimant(), {update_bucket_type, BucketType, Props}).
 
 %% @doc {@see riak_core_bucket_type:iterator/0}
--spec bucket_type_iterator() -> riak_core_metadata:iterator().
+-spec bucket_type_iterator() -> xcmd:iterator().
 bucket_type_iterator() ->
-    riak_core_metadata:iterator(?BUCKET_TYPE_PREFIX, [{default, undefined},
+    xcmd:iterator(?BUCKET_TYPE_PREFIX, [{default, undefined},
                                               {resolver, fun riak_core_bucket_props:resolve/2}]).
 
 %%%===================================================================
@@ -282,7 +282,7 @@ handle_call({create_bucket_type, BucketType, Props0}, _From, State) ->
         {ok, Props} ->
             InactiveProps = lists:keystore(active, 1, Props, {active, false}),
             ClaimedProps = lists:keystore(claimant, 1, InactiveProps, {claimant, node()}),
-            riak_core_metadata:put(?BUCKET_TYPE_PREFIX, BucketType, ClaimedProps),
+            xcmd:put(?BUCKET_TYPE_PREFIX, BucketType, ClaimedProps),
             {reply, ok, State};
         Error ->
             {reply, Error, State}
@@ -293,7 +293,7 @@ handle_call({update_bucket_type, BucketType, Props0}, _From, State) ->
     case can_update_type(BucketType, Existing, Props0) of
         {ok, Props} ->
             MergedProps = riak_core_bucket_props:merge(Props, Existing),
-            riak_core_metadata:put(?BUCKET_TYPE_PREFIX, BucketType, MergedProps),
+            xcmd:put(?BUCKET_TYPE_PREFIX, BucketType, MergedProps),
             {reply, ok, State};
         Error ->
             {reply, Error, State}
@@ -714,7 +714,7 @@ get_remote_type_status(BucketType, Props) ->
     {ok, R} = riak_core_ring_manager:get_my_ring(),
     Members = riak_core_ring:all_members(R),
     {AllProps, BadNodes} = rpc:multicall(lists:delete(node(), Members),
-                                         riak_core_metadata,
+                                         xcmd,
                                          get, [?BUCKET_TYPE_PREFIX, BucketType, [{default, []}]]),
     SortedProps = lists:ukeysort(1, Props),
     %% P may be a {badrpc, ...} in addition to a list of properties when there are older nodes involved
@@ -734,7 +734,7 @@ maybe_activate_type(_BucketType, active, _Props) ->
     ok;
 maybe_activate_type(BucketType, ready, Props) ->
     ActiveProps = lists:keystore(active, 1, Props, {active, true}),
-    riak_core_metadata:put(?BUCKET_TYPE_PREFIX, BucketType, ActiveProps).
+    xcmd:put(?BUCKET_TYPE_PREFIX, BucketType, ActiveProps).
 
 %% @private
 type_active(Props) ->

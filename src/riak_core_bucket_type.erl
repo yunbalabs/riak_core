@@ -30,8 +30,8 @@
 %% Unlike Buckets, Bucket Types must be explicitly created. In
 %% addition, types support setting some properties only on creation
 %% (via {@link riak_core_bucket_props:validate/4}). Since, types are
-%% stored using {@link riak_core_metadata}, in order to provide safe
-%% creation semantics the following invariant must be satisfied: all
+%% stored using {@link xcmd}, in order to provide safe creation
+%% semantics the following invariant must be satisfied: all
 %% nodes in the cluster either see no type or a single version of the
 %% type for the lifetime of the cluster (nodes need not see the single
 %% version at the same time). As part of ensuring this invariant, creation
@@ -194,34 +194,34 @@ reset(BucketType) ->
 
 %% @doc Return an iterator that can be used to walk through all existing bucket types
 %% and their properties
--spec iterator() -> riak_core_metadata:iterator().
+-spec iterator() -> xcmd:iterator().
 iterator() ->
     riak_core_claimant:bucket_type_iterator().
 
 %% @doc Advance the iterator to the next bucket type. itr_done/1 should always be called
 %% before this function
--spec itr_next(riak_core_metadata:iterator()) ->
-                      riak_core_metadata:iterator().
+-spec itr_next(xcmd:iterator()) ->
+                      xcmd:iterator().
 itr_next(It) ->
-    riak_core_metadata:itr_next(It).
+    xcmd:itr_next(It).
 
 %% @doc Returns true if there are no more bucket types to iterate over
--spec itr_done(riak_core_metadata:iterator()) -> boolean().
+-spec itr_done(xcmd:iterator()) -> boolean().
 itr_done(It) ->
-    riak_core_metadata:itr_done(It).
+    xcmd:itr_done(It).
 
 %% @doc Returns the type and properties that the iterator points too. Any siblings,
 %% are resolved at this time. itr_done/1 should be checked before calling this function.
--spec itr_value(riak_core_metadata:iterator()) ->
+-spec itr_value(xcmd:iterator()) ->
                        {bucket_type(), bucket_type_props()}.
 itr_value(It) ->
-    {BucketType, Props} = riak_core_metadata:itr_key_values(It),
+    {BucketType, Props} = xcmd:itr_key_values(It),
     {BucketType, Props}.
 
 
--spec itr_close(riak_core_metadata:iterator()) -> ok.
+-spec itr_close(xcmd:iterator()) -> ok.
 itr_close(It) ->
-    riak_core_metadata:itr_close(It).
+    xcmd:itr_close(It).
 
 %% @doc Returns a hash of a specified set of bucket type properties
 %% whose values may have implications on the treatment or handling of
