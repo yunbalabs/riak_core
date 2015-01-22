@@ -11,6 +11,11 @@
 -define(CHILD(I, Type, Args), {I, {I, start_link, Args}, permanent, 5000, Type, [I]}).
 -define(CHILD(I, Type), ?CHILD(I, Type, 5000)).
 
+%% riak_core environment variables to transfer to the library
+-define(ENVVARS, [metadata_hashtree_timer, metadata_exchange_timeout,
+                  broadcast_start_exchange, broadcast_exchange_timer,
+                  broadcast_lazy_timer]).
+
 %% ===================================================================
 %% API functions
 %% ===================================================================
@@ -26,6 +31,7 @@ start_link() ->
 %% ===================================================================
 
 init([]) ->
+    transfer_env_vars(?ENVVARS),
     {ok, Ring} = riak_core_ring_manager:get_my_ring(),
     Members = riak_core_ring:all_members(Ring),
     Mods = app_helper:get_env(riak_core, broadcast_mods, [xcmd_manager]),
@@ -49,3 +55,13 @@ init([]) ->
 ring_update(Ring) ->
     Nodes = riak_core_ring:all_broadcast_members(Ring),
     xcmd_broadcast:membership_update(Nodes).
+
+transfer_env_vars(List) ->
+    lists:foreach(
+      fun(X) -> xfer_if_exists(X, application:get_env(riak_core, X)) end,
+      List).
+
+xfer_if_exists(_Key, undefined) ->
+    ok;
+xfer_if_exists(Key, Value) ->
+    application:set_env(xcmd, Key, Value).
