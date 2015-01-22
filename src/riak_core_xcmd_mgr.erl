@@ -34,7 +34,8 @@ init([]) ->
     PRoot = application:get_env(riak_core, platform_data_dir, "/tmp"),
     Path = filename:join(PRoot, "cluster_meta"),
     HashtreeArgs = [Path],
-    ManagerArgs = [[{data_dir, Path}]],
+    ManagerArgs = [[{data_dir, Path},
+                    {storage_namespace, riak_core_metadata_manager}]],
 
     Children = [
                 ?CHILD(xcmd_manager, worker, ManagerArgs),
