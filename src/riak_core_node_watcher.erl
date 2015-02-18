@@ -71,7 +71,9 @@
 %% Public API
 %% ===================================================================
 
+%% ERRSCAN
 start_link() ->
+%% ERRSCAN
     gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
 
 service_up(Id, Pid) ->
@@ -267,12 +269,14 @@ handle_call(services, _From, State) ->
 handle_call(suspend_healths, _From, State = #state{healths_enabled=false}) ->
     {reply, already_disabled, State};
 handle_call(suspend_healths, _From, State = #state{healths_enabled=true}) ->
+%% ERRSCAN
     lager:info("suspending all health checks"),
     Healths = all_health_fsms(suspend, State#state.health_checks),
     {reply, ok, update_avsn(State#state{health_checks = Healths, healths_enabled = false})};
 handle_call(resume_healths, _From, State = #state{healths_enabled=true}) ->
     {reply, already_enabled, State};
 handle_call(resume_healths, _From, State = #state{healths_enabled=false}) ->
+%% ERRSCAN
     lager:info("resuming all health checks"),
     Healths = all_health_fsms(resume, State#state.health_checks),
     {reply, ok, update_avsn(State#state{health_checks = Healths, healths_enabled = true})}.
@@ -455,6 +459,7 @@ node_down(Node, State) ->
 node_delete(Node) ->
     Services = internal_get_services(Node),
     _ = [internal_delete(Node, Service) || Service <- Services],
+%% ERRSCAN
     ets:delete(?MODULE, Node),
     Services.
 
@@ -474,6 +479,7 @@ node_update(Node, Services) ->
     _ = [internal_insert(Node, Ss) || Ss <- Added],
 
     %% Keep track of the last time we recv'd data from a node
+%% ERRSCAN
     ets:insert(?MODULE, {Node, Now}),
 
     %% Return the list of affected services (added or deleted)
@@ -533,15 +539,19 @@ peers_update(NewPeers, State) ->
 
 internal_delete(Node, Service) ->
     Svcs = internal_get_services(Node),
+%% ERRSCAN
     ets:insert(?MODULE, {{by_node, Node}, Svcs -- [Service]}),
     Nds = internal_get_nodes(Service),
+%% ERRSCAN
     ets:insert(?MODULE, {{by_service, Service}, Nds -- [Node]}).
 
 internal_insert(Node, Service) ->
     %% Remove Service & node before adding: avoid accidental duplicates
     Svcs = internal_get_services(Node) -- [Service],
+%% ERRSCAN
     ets:insert(?MODULE, {{by_node, Node}, [Service|Svcs]}),
     Nds = internal_get_nodes(Service) -- [Node],
+%% ERRSCAN
     ets:insert(?MODULE, {{by_service, Service}, [Node|Nds]}).
 
 internal_get_services(Node) ->
@@ -686,10 +696,12 @@ health_fsm(checking, {result, Pid, Cause}, Service, #health_check{checking_pid =
 
 health_fsm(checking, {'EXIT', Pid, Cause}, Service, #health_check{checking_pid = Pid} = InCheck)
   when Cause =/= normal ->
+%% ERRSCAN
     lager:error("health check process for ~p error'ed:  ~p", [Service, Cause]),
     Fails = InCheck#health_check.callback_failures + 1,
     if
         Fails == InCheck#health_check.max_callback_failures ->
+%% ERRSCAN
             lager:error("health check callback for ~p failed too "
                         "many times, disabling.", [Service]),
             {down, suspend, InCheck#health_check{checking_pid = undefined,
@@ -759,6 +771,7 @@ start_health_check(Service, #health_check{checking_pid = undefined} = CheckRec) 
             _ = erlang:cancel_timer(Tref),
             ok
     end,
+%% ERRSCAN
     CheckingPid = proc_lib:spawn_link(fun() ->
         case erlang:apply(Mod, Func, [Pid | Args]) of
             R when R =:= true orelse R =:= false ->

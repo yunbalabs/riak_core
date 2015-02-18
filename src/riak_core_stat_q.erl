@@ -79,6 +79,7 @@ stat_return({error,not_found}) -> unavailable;
 stat_return({ok, Value}) -> Value.
 
 log_error(StatName, ErrClass, ErrReason) ->
+%% ERRSCAN
     lager:warning("Failed to calculate stat ~p with ~p:~p", [StatName, ErrClass, ErrReason]).
 
 %% some crazy people put funs in gauges (exometer has a 'function' metric)

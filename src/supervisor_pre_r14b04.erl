@@ -111,14 +111,18 @@ behaviour_info(_Other) ->
 -spec start_link(Module, Args) -> startlink_ret() when
       Module :: module(),
       Args :: term().
+%% ERRSCAN
 start_link(Mod, Args) ->
+%% ERRSCAN
     gen_server:start_link(?MODULE, {self, Mod, Args}, []).
  
 -spec start_link(SupName, Module, Args) -> startlink_ret() when
       SupName :: sup_name(),
       Module :: module(),
       Args :: term().
+%% ERRSCAN
 start_link(SupName, Mod, Args) ->
+%% ERRSCAN
     gen_server:start_link(SupName, ?MODULE, {SupName, Mod, Args}, []).
  
 %%% ---------------------------------------------------
@@ -1086,14 +1090,17 @@ validStrategy(simple_one_for_one) -> true;
 validStrategy(one_for_one)        -> true;
 validStrategy(one_for_all)        -> true;
 validStrategy(rest_for_one)       -> true;
+%% ERRSCAN
 validStrategy(What)               -> throw({invalid_strategy, What}).
 
 validIntensity(Max) when is_integer(Max),
                          Max >=  0 -> true;
+%% ERRSCAN
 validIntensity(What)               -> throw({invalid_intensity, What}).
 
 validPeriod(Period) when is_integer(Period),
                          Period > 0 -> true;
+%% ERRSCAN
 validPeriod(What)                   -> throw({invalid_period, What}).
 
 supname(self, Mod) -> {self(), Mod};
@@ -1142,6 +1149,7 @@ check_childspec(Name, Func, RestartType, Shutdown, ChildType, Mods) ->
 
 validChildType(supervisor) -> true;
 validChildType(worker) -> true;
+%% ERRSCAN
 validChildType(What) -> throw({invalid_child_type, What}).
 
 validName(_Name) -> true.
@@ -1149,17 +1157,20 @@ validName(_Name) -> true.
 validFunc({M, F, A}) when is_atom(M), 
                           is_atom(F), 
                           is_list(A) -> true;
+%% ERRSCAN
 validFunc(Func)                      -> throw({invalid_mfa, Func}).
 
 validRestartType(permanent)   -> true;
 validRestartType(temporary)   -> true;
 validRestartType(transient)   -> true;
+%% ERRSCAN
 validRestartType(RestartType) -> throw({invalid_restart_type, RestartType}).
 
 validShutdown(Shutdown, _) 
   when is_integer(Shutdown), Shutdown > 0 -> true;
 validShutdown(infinity, supervisor)    -> true;
 validShutdown(brutal_kill, _)          -> true;
+%% ERRSCAN
 validShutdown(Shutdown, _)             -> throw({invalid_shutdown, Shutdown}).
 
 validMods(dynamic) -> true;
@@ -1167,10 +1178,12 @@ validMods(Mods) when is_list(Mods) ->
     lists:foreach(fun(Mod) ->
 		    if
 			is_atom(Mod) -> ok;
+%% ERRSCAN
 			true -> throw({invalid_module, Mod})
 		    end
 		  end,
 		  Mods);
+%% ERRSCAN
 validMods(Mods) -> throw({invalid_modules, Mods}).
 
 %%% ------------------------------------------------------

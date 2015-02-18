@@ -117,7 +117,9 @@ app_helper_test_() ->
     }.
 
 setup() ->
+%% ERRSCAN
     application:set_env(bogus_app, envkeyone, value),
+%% ERRSCAN
     application:set_env(bogus_app, envkeytwo, valuetwo).
 
 cleanup(_Ctx) ->

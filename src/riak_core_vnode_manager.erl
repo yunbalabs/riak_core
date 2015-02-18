@@ -82,7 +82,9 @@
 %% Public API
 %% ===================================================================
 
+%% ERRSCAN
 start_link() ->
+%% ERRSCAN
     gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
 
 stop() ->
@@ -257,6 +259,7 @@ find_vnodes(State) ->
     IdxRecs = [F(Pid, Idx, Mod) || {Pid, {Mod, Idx}} <- PidIdxs],
     MonRecs = [#monrec{monref=Mref, key=Key}
                || #idxrec{key=Key, monref=Mref} <- IdxRecs],
+%% ERRSCAN
     true = ets:insert_new(IdxTable, IdxRecs ++ MonRecs),
     State#state{idxtab=IdxTable}.
 
@@ -312,6 +315,7 @@ handle_call({xfer_complete, ModSrcTgt}, _From, State) ->
     ModPartition = {Mod, Partition},
     case get_repair(ModPartition, Repairs) of
         none ->
+%% ERRSCAN
             lager:error("Received xfer_complete for non-existing repair: ~p",
                         [ModPartition]),
             {reply, ok, State};
@@ -323,6 +327,7 @@ handle_call({xfer_complete, ModSrcTgt}, _From, State) ->
                          POX2 = POX#xfer_status{status=complete},
                          R#repair{plus_one_xfer=POX2};
                     true ->
+%% ERRSCAN
                          lager:error("Received xfer_complete for "
                                      "non-existing xfer: ~p", [ModSrcTgt])
                  end,
@@ -387,6 +392,7 @@ create_repair(Pairs, ModPartition, FilterModFun, Mod, Partition, Repairs, State)
                      plus_one_xfer = POXStatus},
     Repairs2 = Repairs ++ [Repair],
     State2 = State#state{repairs = Repairs2},
+%% ERRSCAN
     lager:debug("add repair ~p", [ModPartition]),
     {reply, {ok, Pairs}, State2}.
 
@@ -400,6 +406,7 @@ handle_cast({unregister, Index, Mod, Pid}, #state{idxtab=T} = State) ->
     %% ring event.
     {ok, Ring} = riak_core_ring_manager:get_my_ring(),
     State2 = update_forwarding({Mod, Index}, Ring, State),
+%% ERRSCAN
     ets:match_delete(T, {idxrec, {Index, Mod}, Index, Mod, Pid, '_'}),
     _ = unregister_vnode_stats(Mod, Index),
     riak_core_vnode_proxy:unregister_vnode(Mod, Index, Pid),
@@ -422,6 +429,7 @@ handle_cast(maybe_start_vnodes, State) ->
     {noreply, State2};
 
 handle_cast({kill_repairs, Reason}, State) ->
+%% ERRSCAN
     lager:warning("Killing all repairs: ~p", [Reason]),
     kill_repairs(State#state.repairs, Reason),
     {noreply, State#state{repairs=[]}};
@@ -526,11 +534,13 @@ maybe_ensure_vnodes_started(Ring) ->
     end.
 
 ensure_vnodes_started(Ring) ->
+%% ERRSCAN
     spawn(fun() ->
                   try
                       riak_core_ring_handler:ensure_vnodes_started(Ring)
                   catch
                       T:R ->
+%% ERRSCAN
                           lager:error("~p", [{T, R, erlang:get_stacktrace()}])
                   end
           end).
@@ -580,13 +590,17 @@ delmon(MonRef, _State=#state{idxtab=T}) ->
     case ets:lookup(T, MonRef) of
         [#monrec{key= {Index, Mod} = Key}] ->
             _ = unregister_vnode_stats(Mod, Index),
+%% ERRSCAN
             ets:match_delete(T, {idxrec, Key, '_', '_', '_', MonRef}),
+%% ERRSCAN
             ets:delete(T, MonRef);
         [] ->
+%% ERRSCAN
             ets:match_delete(T, {idxrec, '_', '_', '_', '_', MonRef})
     end.
 
 %% @private
+%% ERRSCAN
 add_vnode_rec(I,  _State=#state{idxtab=T}) -> ets:insert(T,I).
 
 %% @private
@@ -604,12 +618,15 @@ get_vnode(IdxList, Mod, State) ->
     StartFun =
         fun(Idx) ->
                 ForwardTo = get_forward(Mod, Idx, State),
+%% ERRSCAN
                 lager:debug("Will start VNode for partition ~p", [Idx]),
                 {ok, Pid} =
                     riak_core_vnode_sup:start_vnode(Mod, Idx, ForwardTo),
                 register_vnode_stats(Mod, Idx, Pid),
+%% ERRSCAN
                 lager:debug("Started VNode, waiting for initialization to complete ~p, ~p ", [Pid, Idx]),
                 ok = riak_core_vnode:wait_for_init(Pid),
+%% ERRSCAN
                 lager:debug("VNode initialization ready ~p, ~p", [Pid, Idx]),
                 {Idx, Pid}
         end,

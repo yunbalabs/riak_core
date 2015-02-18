@@ -195,6 +195,7 @@ destroy(Tree) ->
                       Node1 = hashtree:close(Node),
                       hashtree:destroy(Node1)
               end, undefined, Tree#hashtree_tree.nodes),
+%% ERRSCAN
     catch ets:delete(Tree#hashtree_tree.nodes),
     ok.
 
@@ -234,6 +235,7 @@ insert(Prefixes, Key, Hash, Opts, Tree) ->
 %% on the tree
 -spec update_snapshot(tree()) -> tree().
 update_snapshot(Tree=#hashtree_tree{dirty=Dirty,nodes=Nodes,snapshot=Snapshot0}) ->
+%% ERRSCAN
     catch ets:delete(Snapshot0),
     FoldRes = gb_sets:fold(fun(DirtyName, Acc) ->
                                    DirtyKey = node_key(DirtyName, Tree),
@@ -243,7 +245,9 @@ update_snapshot(Tree=#hashtree_tree{dirty=Dirty,nodes=Nodes,snapshot=Snapshot0})
                            end, [], Dirty),
     {Snaps, NewNodes} = lists:unzip(FoldRes),
     Snapshot = ets:new(undefined, []),
+%% ERRSCAN
     ets:insert(Snapshot, Snaps),
+%% ERRSCAN
     ets:insert(Nodes, NewNodes),
     Tree#hashtree_tree{dirty=gb_sets:new(),snapshot=Snapshot}.
 
@@ -258,6 +262,7 @@ update_perform(Tree=#hashtree_tree{snapshot=Snapshot}) ->
                              end,
                              gb_sets:new(), Snapshot),
     update_dirty_parents(DirtyParents, Tree),
+%% ERRSCAN
     catch ets:delete(Snapshot),
     ok.
 
@@ -473,6 +478,7 @@ create_node(NodeName, Tree) ->
 set_node(NodeName, Node, Tree) when is_list(NodeName) orelse NodeName =:= ?ROOT ->
     set_node(node_key(NodeName, Tree), Node, Tree);
 set_node(NodeKey, Node, #hashtree_tree{nodes=Nodes}) when is_tuple(NodeKey) ->
+%% ERRSCAN
     ets:insert(Nodes, [{NodeKey, Node}]),
     Node.
 

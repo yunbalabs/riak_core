@@ -26,10 +26,14 @@
          terminate/2, code_change/3]).
 -record(state, {handlermod, handler, exitfun}).
 
+%% ERRSCAN
 start_link(HandlerMod, Handler, Args) ->
+%% ERRSCAN
     start_link(HandlerMod, Handler, Args, undefined).
 
+%% ERRSCAN
 start_link(HandlerMod, Handler, Args, ExitFun) ->
+%% ERRSCAN
     gen_server:start_link(?MODULE, [HandlerMod, Handler, Args, ExitFun], []).
 
 init([HandlerMod, Handler, Args, ExitFun]) ->

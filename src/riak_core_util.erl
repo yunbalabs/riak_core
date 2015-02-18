@@ -317,6 +317,7 @@ pmap(F, L) ->
     Parent = self(),
     lists:foldl(
       fun(X, N) ->
+%% ERRSCAN
               spawn_link(fun() ->
                                  Parent ! {pmap, N, F(X)}
                          end),
@@ -364,6 +365,7 @@ pmap_worker(X, Acc = #pmap_acc{n_pending=NP,
                                fn=Fn})
   when NP < MaxP ->
     Worker =
+%% ERRSCAN
         spawn_link(fun() ->
                            R = Fn(X),
                            Mapper ! {pmap_result, self(), {NP+ND, R}}
@@ -571,6 +573,7 @@ is_arch (darwin) -> string:str(get_arch(),"darwin") > 0;
 is_arch (sunos) -> string:str(get_arch(),"sunos") > 0;
 is_arch (osx) -> is_arch(darwin);
 is_arch (solaris) -> is_arch(sunos);
+%% ERRSCAN
 is_arch (Arch) -> throw({unsupported_architecture,Arch}).
 
 format_ip_and_port(Ip, Port) when is_list(Ip) ->
@@ -625,6 +628,7 @@ make_newest_fold_req(?FOLD_REQ{} = F) ->
 proxy_spawn(Fun) ->
     %% Note: using spawn_monitor does not trigger selective receive
     %%       optimization, but spawn + monitor does. Silly Erlang.
+%% ERRSCAN
     Pid = spawn(?MODULE, proxy, [self(), Fun]),
     MRef = monitor(process, Pid),
     Pid ! {proxy, MRef},
@@ -744,6 +748,7 @@ decr_counter(CounterPid) ->
 
 pmap_test_() ->
     Fgood = fun(X) -> 2 * X end,
+%% ERRSCAN
     Fbad = fun(3) -> throw(die_on_3);
               (X) -> Fgood(X)
            end,
@@ -757,6 +762,7 @@ pmap_test_() ->
               ?assertEqual(Lout, pmap(Fgood, Lin)),
               % Verify a crashing process will not stall pmap
               Parent = self(),
+%% ERRSCAN
               Pid = spawn(fun() ->
                                   % Caller trapping exits causes stall!!
                                   % TODO: Consider pmapping in a spawned proc
@@ -799,6 +805,7 @@ bounded_pmap_test_() ->
     end,
     {setup,
       fun() ->
+%% ERRSCAN
           Pid = spawn_link(?MODULE, counter_loop, [0]),
           monitor(process, Pid),
           Pid
@@ -869,6 +876,7 @@ proxy_spawn_test() ->
     %% Ensure no errant 'DOWN' messages
     receive
         {'DOWN', _, _, _, _}=Msg ->
+%% ERRSCAN
             throw({error, {badmsg, Msg}});
         _ ->
             ok

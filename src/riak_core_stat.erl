@@ -44,7 +44,9 @@
 
 -define(APP, riak_core).
 
+%% ERRSCAN
 start_link() ->
+%% ERRSCAN
     gen_server:start_link({local, ?SERVER}, ?MODULE, [], []).
 
 register_stats() ->
@@ -133,6 +135,7 @@ handle_call(_Req, _From, State) ->
 handle_cast({update, Arg}, State) ->
     case exometer:update([prefix(), ?APP, update_metric(Arg)], update_value(Arg)) of
         {error, not_found} ->
+%% ERRSCAN
             lager:debug("~p not found on update.", [Arg]);
         ok ->
             ok

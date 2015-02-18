@@ -53,10 +53,13 @@ stop_guarded_handler(HandlerMod, Handler, Args) ->
 
 handler_spec(HandlerMod, Handler, Args, ExitFun) ->
     {{HandlerMod, Handler},
+%% ERRSCAN
      {riak_core_eventhandler_guard, start_link, [HandlerMod, Handler, Args, ExitFun]},
      transient, 5000, worker, [riak_core_eventhandler_guard]}.
 
+%% ERRSCAN
 start_link() ->
+%% ERRSCAN
     supervisor:start_link({local, ?MODULE}, ?MODULE, []).
 
 %% @private

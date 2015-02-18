@@ -23,6 +23,7 @@
 
 %% API
 -export([start_link/0,
+%% ERRSCAN
          start_link/1,
          insert/2,
          insert/3,
@@ -64,9 +65,11 @@
 %% directory where other cluster metadata is stored in `platform_data_dir'
 %% as the data root.
 -spec start_link() -> {ok, pid()} | ignore | {error, term()}.
+%% ERRSCAN
 start_link() ->
     PRoot = app_helper:get_env(riak_core, platform_data_dir),
     DataRoot = filename:join(PRoot, "cluster_meta/trees"),
+%% ERRSCAN
     start_link(DataRoot).
 
 %% @doc Starts a registered process that manages a {@link
@@ -74,7 +77,9 @@ start_link() ->
 %% for the lifetime of the process (assuming it shutdowns gracefully),
 %% in the directory `DataRoot'.
 -spec start_link(file:filename()) -> {ok, pid()} | ignore | {error, term()}.
+%% ERRSCAN
 start_link(DataRoot) ->
+%% ERRSCAN
     gen_server:start_link({local, ?SERVER}, ?MODULE, [DataRoot], []).
 
 %% @doc Same as insert(PKey, Hash, false).
@@ -204,6 +209,7 @@ handle_info({'DOWN', BuildRef, process, _Pid, normal}, State=#state{built=BuildR
     State1 = build_done(State),
     {noreply, State1};
 handle_info({'DOWN', BuildRef, process, _Pid, Reason}, State=#state{built=BuildRef}) ->
+%% ERRSCAN
     lager:error("building tree failed: ~p", [Reason]),
     State1 = build_error(State),
     {noreply, State1};
@@ -236,6 +242,7 @@ maybe_compare_async(From, _, _, HandlerAcc, _State) ->
 
 %% @private
 compare_async(From, RemoteFun, HandlerFun, HandlerAcc, #state{tree=Tree}) ->
+%% ERRSCAN
     spawn_link(fun() ->
                        Res = hashtree_tree:compare(Tree, RemoteFun,
                                                    HandlerFun, HandlerAcc),
@@ -268,6 +275,7 @@ update_async(State) ->
 %% @private
 update_async(From, Lock, State=#state{tree=Tree}) ->
     Tree2 = hashtree_tree:update_snapshot(Tree),
+%% ERRSCAN
     Pid = spawn_link(fun() ->
                              hashtree_tree:update_perform(Tree2),
                              case From of
@@ -289,6 +297,7 @@ maybe_build_async(State) ->
 
 %% @private
 build_async(State) ->
+%% ERRSCAN
     {_Pid, Ref} = spawn_monitor(fun build/0),
     State#state{built=Ref}.
 

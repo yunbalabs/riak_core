@@ -21,7 +21,9 @@
 -export([start_link/0, init/1]).
 -export([start_proxy/2, stop_proxy/2, start_proxies/1]).
 
+%% ERRSCAN
 start_link() ->
+%% ERRSCAN
     supervisor:start_link({local, ?MODULE}, ?MODULE, []).
 
 init([]) ->
@@ -47,6 +49,7 @@ stop_proxy(Mod, Index) ->
     ok.
 
 start_proxies(Mod) ->
+%% ERRSCAN
     lager:debug("Starting vnode proxies for: ~p", [Mod]),
     Indices = get_indices(),
     _ = [start_proxy(Mod, Index) || Index <- Indices],
@@ -54,6 +57,7 @@ start_proxies(Mod) ->
 
 %% @private
 proxy_ref(Mod, Index) ->
+%% ERRSCAN
     {{Mod, Index}, {riak_core_vnode_proxy, start_link, [Mod, Index]},
      permanent, 5000, worker, [riak_core_vnode_proxy]}.
 

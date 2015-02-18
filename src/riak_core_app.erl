@@ -38,6 +38,7 @@ start(_StartType, _StartArgs) ->
 
     case application:get_env(riak_core, delayed_start) of
         {ok, Delay} ->
+%% ERRSCAN
             lager:info("Delaying riak_core startup as requested"),
             timer:sleep(Delay);
         _ ->
@@ -51,10 +52,13 @@ start(_StartType, _StartArgs) ->
         ok ->
             ok;
         {error, RingReason} ->
+%% ERRSCAN
             lager:critical(
               "Ring state directory ~p does not exist, "
               "and could not be created: ~p",
+%% ERRSCAN
               [RingStateDir, lager:posix_error(RingReason)]),
+%% ERRSCAN
             throw({error, invalid_ring_state_dir})
     end,
 
@@ -67,6 +71,7 @@ start(_StartType, _StartArgs) ->
     riak_core_bucket:append_bucket_defaults(riak_core_bucket_type:defaults()),
 
     %% Spin up the supervisor; prune ring files as necessary
+%% ERRSCAN
     case riak_core_sup:start_link() of
         {ok, Pid} ->
             riak_core:register(riak_core, [{stat_mod, riak_core_stat},
@@ -111,5 +116,6 @@ start(_StartType, _StartArgs) ->
     end.
 
 stop(_State) ->
+%% ERRSCAN
     lager:info("Stopped  application riak_core.\n", []),
     ok.

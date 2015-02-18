@@ -129,6 +129,7 @@ run(Opts) ->
                 {RingArg, TN0};
             _ ->
                 help(),
+%% ERRSCAN
                 throw({bad_opts, Opts})
             end,
     Choose1 = add_choose_params(Choose, TN),
@@ -159,10 +160,12 @@ read_ringfile(RingFile) ->
         {ok, Binary} ->
             binary_to_term(Binary);
         {error, Reason} ->
+%% ERRSCAN
             throw({bad_ring, Reason})
     end.
 
 setup_environment(Vars) ->
+%% ERRSCAN
     _ = [application:set_env(riak_core, Key, Val) || {Key, Val} <- Vars],
     ok.
 
@@ -320,6 +323,7 @@ command({join, Node}, Ring) when is_atom(Node) ->
     riak_core_ring:add_member(Node, Ring, Node);
 command({leave, Node}, Ring) ->
     Members = riak_core_ring:all_members(Ring),
+%% ERRSCAN
     lists:member(Node, Members) orelse throw(invalid_member),
     riak_core_ring:leave_member(Node, Ring, Node).
 
@@ -403,6 +407,7 @@ commission(Base, Test, {Wants, Choose}) ->
     Dir = commission_test_dir(Base, RingSize, Nodes, NVal, TN, Choose),
     case filelib:is_dir(Dir) of
         true ->
+%% ERRSCAN
             throw(already_generated);
         _ ->
             ok
@@ -412,6 +417,7 @@ commission(Base, Test, {Wants, Choose}) ->
 
     {ok, SeqFh} = file:open(filename:join([Dir, "sequential.txt"]), [write]),
     io:format(SeqFh, "cmds,balance,violations,diversity\n", []),
+%% ERRSCAN
     application:set_env(riak_core, target_n_val, TN),
 
     Choose1 = add_choose_params(Choose, TN),
@@ -433,6 +439,7 @@ commission(Base, Test, {Wants, Choose}) ->
                               riak_core_claim_util:ring_stats(Ring2, TN)
                           catch
                               _:Reason ->
+%% ERRSCAN
                                   lager:info("Ring stats failed - ~p\n", [Reason]),
                                   []
                           end,
@@ -468,6 +475,7 @@ commission(Base, Test, {Wants, Choose}) ->
                               riak_core_claim_util:ring_stats(Ring2, TN)
                           catch
                               _:Reason ->
+%% ERRSCAN
                                   lager:info("Ring stats failed - ~p\n", [Reason]),
                                   []
                           end,

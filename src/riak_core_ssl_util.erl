@@ -63,6 +63,7 @@ maybe_use_ssl(App) ->
                 {ok, Options} ->
                     Options;
                 {error, Reason} ->
+%% ERRSCAN
                     lager:error("Error, invalid SSL configuration: ~s", [Reason]),
                     false
             end
@@ -148,6 +149,7 @@ load_certs(CertDirOrFile) ->
     end.
 
 load_certs([], Acc) ->
+%% ERRSCAN
     lager:debug("Successfully loaded ~p CA certificates", [length(Acc)]),
     Acc;
 load_certs([Cert|Certs], Acc) ->
@@ -155,6 +157,7 @@ load_certs([Cert|Certs], Acc) ->
         true ->
             load_certs(Certs, Acc);
         _ ->
+%% ERRSCAN
             lager:debug("Loading certificate ~p", [Cert]),
             load_certs(Certs, load_cert(Cert) ++ Acc)
     end.
@@ -182,12 +185,14 @@ verify_ssl(_, valid, UserState) ->
     %% this is the check for the CA cert
     {valid, UserState};
 verify_ssl(_, valid_peer, undefined) ->
+%% ERRSCAN
     lager:error("Unable to determine local certificate's common name"),
     {fail, bad_local_common_name};
 verify_ssl(Cert, valid_peer, {App, MyCommonName}) ->
     CommonName = get_common_name(Cert),
     case string:to_lower(CommonName) == string:to_lower(MyCommonName) of
         true ->
+%% ERRSCAN
             lager:error("Peer certificate's common name matches local "
                 "certificate's common name: ~p", [CommonName]),
             {fail, duplicate_common_name};
@@ -195,10 +200,12 @@ verify_ssl(Cert, valid_peer, {App, MyCommonName}) ->
             case validate_common_name(CommonName,
                     app_helper:get_env(App, peer_common_name_acl, "*")) of
                 {true, Filter} ->
+%% ERRSCAN
                     lager:info("SSL connection from ~s granted by ACL ~s",
                         [CommonName, Filter]),
                     {valid, MyCommonName};
                 false ->
+%% ERRSCAN
                     lager:error("SSL connection from ~s denied, no matching ACL",
                         [CommonName]),
                     {fail, no_acl}

@@ -58,7 +58,9 @@ get_stats(App) ->
 %% riak_core_stat_cache:start_link() to return {ok, Pid}. It also keeps track
 %% of the produce_stats() callbacks for each registered app.
 
+%% ERRSCAN
 start_link() ->
+%% ERRSCAN
     gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
 
 stop() ->

@@ -48,14 +48,20 @@ vmaster_to_vmod(VMaster) ->
     L = atom_to_list(VMaster),
     list_to_atom(lists:sublist(L,length(L)-7)).
 
+%% ERRSCAN
 start_link(VNodeMod) ->
+%% ERRSCAN
     start_link(VNodeMod, undefined).
 
+%% ERRSCAN
 start_link(VNodeMod, LegacyMod) ->
+%% ERRSCAN
     start_link(VNodeMod, LegacyMod, undefined).
 
+%% ERRSCAN
 start_link(VNodeMod, LegacyMod, Service) ->
     RegName = reg_name(VNodeMod),
+%% ERRSCAN
     gen_server:start_link({local, RegName}, ?MODULE,
                           [Service,VNodeMod,LegacyMod,RegName], []).
 
@@ -147,6 +153,7 @@ sync_command({Index,Node}, Msg, VMaster, Timeout) ->
 %% continue to handle requests.
 sync_spawn_command({Index,Node}, Msg, VMaster) ->
     Request = make_request(Msg, {server, undefined, undefined}, Index),
+%% ERRSCAN
     case gen_server:call({VMaster, Node}, {spawn, Request}, infinity) of
         {vnode_error, {Error, _Args}} -> error(Error);
         {vnode_error, Error} -> error(Error);
@@ -222,6 +229,7 @@ handle_cast({wait_for_service, Service}, State) ->
         undefined ->
             ok;
         _ ->
+%% ERRSCAN
             lager:debug("Waiting for service: ~p", [Service]),
             riak_core:wait_for_service(Service)
     end,
@@ -252,11 +260,13 @@ handle_call(Req=?VNODE_REQ{index=Idx, sender={server, undefined, undefined}},
     Proxy = riak_core_vnode_proxy:reg_name(Mod, Idx),
     gen_fsm:send_event(Proxy, Req?VNODE_REQ{sender={server, undefined, From}}),
     {noreply, State};
+%% ERRSCAN
 handle_call({spawn,
              Req=?VNODE_REQ{index=Idx, sender={server, undefined, undefined}}},
             From, State=#state{vnode_mod=Mod}) ->
     Proxy = riak_core_vnode_proxy:reg_name(Mod, Idx),
     Sender = {server, undefined, From},
+%% ERRSCAN
     spawn_link(
       fun() -> gen_fsm:send_all_state_event(Proxy, Req?VNODE_REQ{sender=Sender}) end),
     {noreply, State};

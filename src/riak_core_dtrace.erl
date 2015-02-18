@@ -207,15 +207,19 @@ timeit_best_off_test() ->
     timeit_best_common("timeit_best OFF (fastest)", false).
 
 timeit_best_onfalse_test() ->
+%% ERRSCAN
     application:set_env(riak_core, dtrace_support, true),
     timeit_best_common("timeit_best ON -init", false),
+%% ERRSCAN
     application:unset_env(riak_core, dtrace_support).
 
 timeit_best_ontrue_test() ->
     %% NOTE: This test must be run *last* because it's really
     %%       difficult to undo the dtrace/dyntrace init.
+%% ERRSCAN
     application:set_env(riak_core, dtrace_support, true),
     timeit_best_common("timeit_best ON +init", true),
+%% ERRSCAN
     application:unset_env(riak_core, dtrace_support).
 
 timeit_best_common(Label, InitTheDTraceStuff_p) ->

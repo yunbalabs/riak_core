@@ -44,9 +44,11 @@ behaviour_info(callbacks) ->
 behaviour_info(_Other) ->
     undefined.
 
+%% ERRSCAN
 start_link(Args) ->
     WorkerMod = proplists:get_value(worker_callback_mod, Args),
     [VNodeIndex, WorkerArgs, WorkerProps, Caller] = proplists:get_value(worker_args, Args),
+%% ERRSCAN
     gen_server:start_link(?MODULE, [WorkerMod, VNodeIndex, WorkerArgs, WorkerProps, Caller], []).
 
 handle_work(Worker, Work, From) ->
@@ -62,6 +64,7 @@ init([Module, VNodeIndex, WorkerArgs, WorkerProps, Caller]) ->
     {ok, #state{module=Module, modstate=WorkerState}}.
 
 handle_call(Event, _From, State) ->
+%% ERRSCAN
     lager:debug("Vnode worker received synchronous event: ~p.", [Event]),
     {reply, ok, State}.
 

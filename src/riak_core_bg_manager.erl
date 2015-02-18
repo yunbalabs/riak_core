@@ -75,6 +75,7 @@
 %% API
 -export([
          %% Universal
+%% ERRSCAN
          start_link/0,
          bypass/1,
          bypassed/0,
@@ -137,8 +138,10 @@
 
 %% @doc Starts the server
 -spec start_link() -> {ok, pid()} | ignore | {error, term}.
+%% ERRSCAN
 start_link() ->
     _ = maybe_create_ets(),
+%% ERRSCAN
     gen_server:start_link({local, ?SERVER}, ?MODULE, [], []).
 
 %% Test entry point to start stand-alone server
@@ -420,6 +423,7 @@ query_resource(Resource, Types) ->
                   ignore |
                   {stop, term()}.
 init([]) ->
+%% ERRSCAN
     lager:debug("Background Manager starting up."),
     State = #state{info_table=?BG_INFO_ETS_TABLE,
                    entry_table=?BG_ENTRY_ETS_TABLE,
@@ -554,10 +558,13 @@ validate_hold({Key,Entry}=Obj, TableId) when ?e_type(Entry) == lock ->
             %% Still alive. Re-monitor and update table
             Ref = monitor(process, ?e_pid(Entry)),
             Entry2 = Entry#resource_entry{ref=Ref},
+%% ERRSCAN
             ets:delete_object(TableId, Obj),
+%% ERRSCAN
             ets:insert(TableId, {Key, Entry2});
         false ->
             %% Process is not alive - release the lock
+%% ERRSCAN
             ets:delete_object(TableId, Obj)
     end;
 validate_hold(_Obj, _TableId) -> %% tokens don't monitor processes
@@ -567,6 +574,7 @@ validate_hold(_Obj, _TableId) -> %% tokens don't monitor processes
 update_bypassed(_Bypassed, State) when ?NOT_TRANSFERED(State) ->
     State;
 update_bypassed(Bypassed, State=#state{info_table=TableId}) ->
+%% ERRSCAN
     ets:insert(TableId, {bypassed, Bypassed}),
     State#state{bypassed=Bypassed}.
 
@@ -574,6 +582,7 @@ update_bypassed(Bypassed, State=#state{info_table=TableId}) ->
 update_enabled(_Enabled, State) when ?NOT_TRANSFERED(State) ->
     State;
 update_enabled(Enabled, State=#state{info_table=TableId}) ->
+%% ERRSCAN
     ets:insert(TableId, {enabled, Enabled}),
     State#state{enabled=Enabled}.
 
@@ -581,6 +590,7 @@ update_enabled(Enabled, State=#state{info_table=TableId}) ->
 restore_boolean(Key, Default, #state{info_table=TableId}) ->
     case ets:lookup(TableId, Key) of
         [] ->
+%% ERRSCAN
             ets:insert(TableId, {Key, Default}),
             Default;
         [{_Key,Value} | _Rest] ->
@@ -603,6 +613,7 @@ do_handle_call_exception(Function, Args, State) ->
     try apply(Function, Args)
     catch
         Error ->
+%% ERRSCAN
             lager:error("Exception: ~p in function ~p", [Error, Function]),
             {reply, Error, State}
     end.
@@ -619,8 +630,10 @@ do_disable_lock(Lock, Kill, State) ->
 %% @doc Throws unregistered for unknown Token
 do_set_token_rate(Token, Rate, State) ->
     try
+%% ERRSCAN
         Info = resource_info(Token, State),           %% may throw table_id_undefined or unregistered
         OldRate = Info#resource_info.limit,
+%% ERRSCAN
         enforce_type_or_throw(Token, token, Info),    %% may throw badtype
         State2 = update_limit(Token, Rate, Info, State),
         schedule_refill_tokens(Token, State2),
@@ -657,12 +670,15 @@ do_resource_limit(_Type, Resource, State) ->
 enforce_type_or_throw(Resource, Type, Info) ->
     case ?resource_type(Info) of
         Type -> ok;
+%% ERRSCAN
         _Other -> throw({badtype, Resource})
     end.
 
 do_set_concurrency_limit(Lock, Limit, Kill, State) ->
     try
+%% ERRSCAN
         Info = resource_info(Lock, State),          %% may throw table_id_undefined or unregistered
+%% ERRSCAN
         enforce_type_or_throw(Lock, lock, Info),    %% may throw badtype
         OldLimit = limit(Info),
         State2 = update_limit(Lock, Limit, ?DEFAULT_LOCK_INFO, State),
@@ -706,6 +722,7 @@ release_resource(Ref, State=#state{entry_table=TableId}) ->
     %% There should only be one instance of the object, but we'll zap all that match.
     Given = [Obj || Obj <- ets:match_object(TableId, {{given, '_'},'_'})],
     Matches = [Obj || {_Key,Entry}=Obj <- Given, ?e_ref(Entry) == Ref],
+%% ERRSCAN
     _ = [ets:delete_object(TableId, Obj) || Obj <- Matches],
     State.
 
@@ -754,17 +771,21 @@ update_resource_info(Resource, Fun, Default, State=#state{info_table=TableId}) -
                   [] -> Default;
                   [{_Key,Info} | _Rest] -> Fun(Info)
               end,
+%% ERRSCAN
     ets:insert(TableId, {Key, NewInfo}),
     State.
 
 %% @doc Throws unregistered for unknown Resource
 resource_info(_Resource, State) when ?NOT_TRANSFERED(State) ->
+%% ERRSCAN
     throw(table_id_undefined);
 resource_info(Resource, #state{info_table=TableId}) ->
     Key = {info,Resource},
     case ets:lookup(TableId, Key) of
+%% ERRSCAN
         [] -> throw({unregistered, Resource});
         [{_Key,Info}] -> Info;
+%% ERRSCAN
         [{_Key,_Info} | _Rest] -> throw({too_many_info_objects, Resource})
     end.
 
@@ -801,10 +822,12 @@ schedule_refill_tokens(Token, State) ->
 %% times.
 add_given_entry(Resource, Entry, TableId) ->
     Key = {given, Resource},
+%% ERRSCAN
     ets:insert(TableId, {Key, Entry}).
 
 remove_given_entries(Resource, State=#state{entry_table=TableId}) ->
     Key = {given, Resource},
+%% ERRSCAN
     ets:delete(TableId, Key),
     State.
 

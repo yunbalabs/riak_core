@@ -29,7 +29,9 @@
 -define(CHILD(I,Type), {I,{I,start_link,[]},permanent,brutal_kill,Type,[I]}).
 
 %% begins the supervisor, init/1 will be called
+%% ERRSCAN
 start_link () ->
+%% ERRSCAN
     supervisor:start_link({local,?MODULE},?MODULE,[]).
 
 %% @private

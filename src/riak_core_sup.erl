@@ -42,7 +42,9 @@
 %% API functions
 %% ===================================================================
 
+%% ERRSCAN
 start_link() ->
+%% ERRSCAN
     supervisor:start_link({local, ?MODULE}, ?MODULE, []).
 
 %% ===================================================================
@@ -55,6 +57,7 @@ init([]) ->
     {ok, Root} = application:get_env(riak_core, platform_data_dir),
 
     EnsembleSup = {riak_ensemble_sup,
+%% ERRSCAN
                    {riak_ensemble_sup, start_link, [Root]},
                    permanent, 30000, supervisor, [riak_ensemble_sup]},
 

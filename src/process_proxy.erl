@@ -19,7 +19,9 @@
 -module(process_proxy).
 -export([start_link/2, init/1, stop/1]).
 
+%% ERRSCAN
 start_link(RegName, ProxyTo) ->
+%% ERRSCAN
     proc_lib:start_link(?MODULE, init, [[self(), RegName, ProxyTo]]).
 
 init([ParentPid, RegName, ProxyTo]) ->

@@ -69,10 +69,14 @@
                hist = []}).       %% History of readings
 
 
+%% ERRSCAN
 start_link() ->
+%% ERRSCAN
     start_link([]).
 
+%% ERRSCAN
 start_link(Props) ->
+%% ERRSCAN
     gen_server:start_link({local, ?MODULE}, ?MODULE, Props, []).
 
 monitor(Socket, Tag, Transport) ->
@@ -165,6 +169,7 @@ rate([TS1 | TSRest], [C1 | CRest], Acc) ->
     rate(TSRest, CRest, [Rate | Acc]).
 
 init(Props) ->
+%% ERRSCAN
     lager:info("Starting TCP Monitor"),
     ok = net_kernel:monitor_nodes(true, [{node_type, visible}, nodedown_reason]),
     State0 = #state{interval = proplists:get_value(interval, Props, ?DEFAULT_INTERVAL),
@@ -196,6 +201,7 @@ handle_call({monitor, Socket, Tag, Transport}, _From, State) ->
                                         transport = Transport}, State)}.
 
 handle_cast(Msg, State) ->
+%% ERRSCAN
     lager:warning("unknown message received: ~p", [Msg]),
     {noreply, State}.
 
@@ -203,6 +209,7 @@ handle_info({nodeup, Node, _InfoList}, State) ->
     DistCtrl = erlang:system_info(dist_ctrl),
     case proplists:get_value(Node, DistCtrl) of
         undefined ->
+%% ERRSCAN
             lager:error("Could not get dist for ~p\n~p\n", [Node, DistCtrl]),
             {noreply, State};
         Port ->
@@ -271,6 +278,7 @@ safe_getopts(Socket, Opts) ->
     inet:getopts(Socket, Opts).
 
 terminate(_Reason, _State) ->
+%% ERRSCAN
     lager:info("Shutting down TCP Monitor"),
     %% TODO: Consider trying to do something graceful with poolboy?
     ok.
@@ -363,10 +371,12 @@ format_socket_stats([{K,V}|T], Buf) ->
 -ifdef(TEST).
 updown() ->
     %% Set the stat gathering interval to 100ms
+%% ERRSCAN
     {ok, TCPMonPid} = riak_core_tcp_mon:start_link([{interval, 100}]),
     {ok, LS} = gen_tcp:listen(0, [{active, true}, binary]),
     {ok, Port} = inet:port(LS),
     Pid = self(),
+%% ERRSCAN
     spawn(
         fun () ->
                 %% server
@@ -417,16 +427,19 @@ nodeupdown_test_() ->
     %% two seconds, so I'm inclined to believe it's either a
     %% race-condition or prior-state related issue. The spawn is an
     %% attempt at seeing if the failure still occasionally happens
+%% ERRSCAN
     {spawn, {timeout, 60, fun updown/0}}.
 
 ssl_test_() ->
     {timeout, 60, fun() ->
         ssl:start(),
         % Set the stat gathering interval to 100ms
+%% ERRSCAN
         {ok, TCPMonPid} = riak_core_tcp_mon:start_link([{interval, 100}]),
         % set up a server to hear us out.
         {ok, LS} = ssl:listen(0, [{active, true}, binary, {certfile, "../test/site1-cert.pem"}, {keyfile, "../test/site1-key.pem"}]),
         {ok, {_, Port}} = ssl:sockname(LS),
+%% ERRSCAN
         spawn(fun () ->
             %% server
             {ok, S} = ssl:transport_accept(LS),

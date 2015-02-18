@@ -112,6 +112,7 @@ prepare(start, State) ->
     end;
 prepare(timeout, State=#state{peer=Peer}) ->
     %% getting remote lock timed out
+%% ERRSCAN
     lager:error("metadata exchange with ~p timed out aquiring locks", [Peer]),
     {stop, normal, State};
 prepare({remote_lock, ok}, State) ->
@@ -126,6 +127,7 @@ update(start, State) ->
     update_request(State#state.peer),
     {next_state, update, State, State#state.timeout};
 update(timeout, State=#state{peer=Peer}) ->
+%% ERRSCAN
     lager:error("metadata exchange with ~p timed out updating trees", [Peer]),
     {stop, normal, State};
 update(tree_updated, State) ->
@@ -157,9 +159,11 @@ exchange(timeout, State=#state{peer=Peer}) ->
     Total = LocalPrefixes + RemotePrefixes + Keys,
     case Total > 0 of
         true ->
+%% ERRSCAN
             lager:info("completed metadata exchange with ~p. repaired ~p missing local prefixes, "
                        "~p missing remote prefixes, and ~p keys", [Peer, LocalPrefixes, RemotePrefixes, Keys]);
         false ->
+%% ERRSCAN
             lager:debug("completed metadata exchange with ~p. nothing repaired", [Peer])
     end,
     {stop, normal, State}.
@@ -294,6 +298,7 @@ update_request(Node) ->
 %% "borrowed" from riak_kv_exchange_fsm
 as_event(F) ->
     Self = self(),
+%% ERRSCAN
     spawn_link(fun() ->
                        Result = F(),
                        gen_fsm:send_event(Self, Result)

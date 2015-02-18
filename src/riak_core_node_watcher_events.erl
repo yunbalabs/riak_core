@@ -43,7 +43,9 @@
 %% API functions
 %% ===================================================================
 
+%% ERRSCAN
 start_link() ->
+%% ERRSCAN
     gen_event:start_link({local, ?MODULE}).
 
 add_handler(Handler, Args) ->

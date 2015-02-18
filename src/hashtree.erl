@@ -1074,6 +1074,7 @@ do_concurrent_build(N1, N2) ->
 do_remote(N) ->
     %% Spawn new process for remote tree
     Other =
+%% ERRSCAN
         spawn(fun() ->
                       A0 = insert_many(N, new()),
                       A1 = insert(<<"10">>, <<"42">>, A0),
@@ -1142,6 +1143,7 @@ peval(L) ->
     Parent = self(),
     lists:foldl(
       fun(F, N) ->
+%% ERRSCAN
               spawn(fun() ->
                             Parent ! {peval, N, F()}
                     end),
@@ -1217,6 +1219,7 @@ delta_test() ->
 
 -ifdef(EQC).
 sha_test_() ->
+%% ERRSCAN
     {spawn,
      {timeout, 120,
       fun() ->
@@ -1239,6 +1242,7 @@ prop_sha() ->
                             end)).
 
 eqc_test_() ->
+%% ERRSCAN
     {spawn,
      {timeout, 120,
       fun() ->
@@ -1340,6 +1344,7 @@ est_prop() ->
             end).
 
 est_test_() ->
+%% ERRSCAN
     {spawn,
      {timeout, 240,
       fun() ->

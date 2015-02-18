@@ -199,10 +199,12 @@ wants_claim_v3(Ring, _Node) ->
     %% running claim not the metadata.
     case riak_core_ring:get_meta(claimed, Ring) of
         {ok, {claim_v3, Wants}} ->
+%% ERRSCAN
             lager:debug("WantsClaim3(~p) no.  Current ring claimed for ~p\n", 
                         [_Node, Wants]),
             no;
         {ok, {claim_v3, CurWants}} ->
+%% ERRSCAN
             lager:debug("WantsClaim3(~p) yes.  Current ring claimed for "
                         "different wants\n~p\n",
                         [_Node, CurWants]),
@@ -212,7 +214,9 @@ wants_claim_v3(Ring, _Node) ->
             %% to recalculate.
             case app_helper:get_env(riak_core, force_reclaim, false) of
                 true ->
+%% ERRSCAN
                     application:unset_env(riak_core, force_reclaim),
+%% ERRSCAN
                     lager:info("Forced rerun of claim algorithm - "
                                "unsetting force_reclaim"),
                     {yes, 1};
@@ -227,10 +231,12 @@ wants_claim_v3(Ring, _Node) ->
                     Diffs = lists:sum([abs(Diff) || {_, Diff} <- Deltas]),
                     case Diffs of
                         0 ->
+%% ERRSCAN
                             lager:debug("WantsClaim3(~p) no.  All wants met.\n", 
                                         [_Node]),
                             no;
                         _ ->
+%% ERRSCAN
                             lager:debug("WantsClaim3(~p) yes - ~p.\n"
                                         "Does not meet wants - diffs ~p\n",
                                         [_Node, Diffs, Deltas]),
@@ -399,7 +405,9 @@ choose_claim_v3(Ring, _ClaimNode, Params) ->
     Q = riak_core_ring:num_partitions(Ring),
     TN = proplists:get_value(target_n_val, Params, ?DEF_TARGET_N),
     Wants = wants(Ring),
+%% ERRSCAN
     lager:debug("Claim3 started: S=~p Q=~p TN=~p\n", [S, Q, TN]),
+%% ERRSCAN
     lager:debug("       wants: ~p\n", [Wants]),
     {Partitions, Owners} = lists:unzip(riak_core_ring:all_owners(Ring)),
 
@@ -415,6 +423,7 @@ choose_claim_v3(Ring, _ClaimNode, Params) ->
             ok
     end,
 
+%% ERRSCAN
     lager:debug("Claim3 metrics: ~p\n", [NewMetrics]),
     %% Build a new ring from it
     NewRing = lists:foldl(fun({_P, OldOwn, OldOwn}, R0) ->
@@ -454,7 +463,9 @@ claim_v3(Wants, Owners, Params) ->
         true ->
             NIs = build_nis(Wants, Owners),
 
+%% ERRSCAN
             lager:debug("claim3 - NIs\n",[]),
+%% ERRSCAN
             _ = [lager:debug("  ~p\n", [NI]) || NI <- NIs],
 
             %% Generate plans that resolve violations and overloads
@@ -467,12 +478,14 @@ claim_v3(Wants, Owners, Params) ->
                 0 ->
                     New;
                 _ ->
+%% ERRSCAN
                     lager:debug("claimv3: Could not make plan without violations, diversifying\n",
                                 []),
                    %% If could not build ring without violations, diversify it
                     claim_diversify(Wants, Owners, Params)
             end;
         false ->
+%% ERRSCAN
             lager:debug("claimv3: Not enough nodes to run (have ~p need ~p), diagonalized\n",
                         [length(Claiming), TN+1]),
             claim_diagonal(Wants, Owners, Params)
@@ -823,6 +836,7 @@ evaluate_plans(Plans, Wants, Q, TN) ->
                             OM = {_Owners, Metrics} = score_plan(Plan, Wants, Q, TN),
                             case better_plan(Metrics, RunningMetrics) of
                                 true ->
+%% ERRSCAN
                                     lager:debug("Claim3: Trial ~p found better plan: ~p\n",
                                                 [Trial, Metrics]),
                                     {Trial + 1, OM};

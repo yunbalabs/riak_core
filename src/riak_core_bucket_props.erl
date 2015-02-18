@@ -118,6 +118,7 @@ append_defaults(Items) when is_list(Items) ->
         Fixups ->
             riak_core_ring_manager:run_fixups(Fixups, default, NewDefaults)
     end,
+%% ERRSCAN
     application:set_env(riak_core, default_bucket_props, FixedDefaults),
     %% do a noop transform on the ring, to make the fixups re-run
     catch(riak_core_ring_manager:ring_trans(fun(Ring, _) ->

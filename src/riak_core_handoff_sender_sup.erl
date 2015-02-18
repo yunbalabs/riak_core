@@ -36,7 +36,9 @@
 %%% API
 %%%===================================================================
 
+%% ERRSCAN
 start_link() ->
+%% ERRSCAN
     supervisor:start_link({local,?MODULE},?MODULE,[]).
 
 %% @doc Start the handoff process for the module (`Module'), partition

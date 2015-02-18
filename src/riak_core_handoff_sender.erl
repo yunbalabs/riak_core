@@ -32,10 +32,12 @@
 -define(STATUS_INTERVAL, 2).
 
 -define(log_info(Str, Args),
+%% ERRSCAN
         lager:info("~p transfer of ~p from ~p ~p to ~p ~p failed " ++ Str,
                    [Type, Module, SrcNode, SrcPartition, TargetNode,
                     TargetPartition] ++ Args)).
 -define(log_fail(Str, Args),
+%% ERRSCAN
         lager:error("~p transfer of ~p from ~p ~p to ~p ~p failed " ++ Str,
                     [Type, Module, SrcNode, SrcPartition, TargetNode,
                      TargetPartition] ++ Args)).
@@ -75,8 +77,10 @@
 %%% API
 %%%===================================================================
 
+%% ERRSCAN
 start_link(TargetNode, Module, {Type, Opts}, Vnode) ->
     SslOpts = get_handoff_ssl_options(),
+%% ERRSCAN
     Pid = spawn_link(fun()->start_fold(TargetNode,
                                        Module,
                                        {Type, Opts},
@@ -150,6 +154,7 @@ start_fold(TargetNode, Module, {Type, Opts}, ParentPid, SslOpts) ->
 
          RemoteSupportsBatching = remote_supports_batching(TargetNode),
 
+%% ERRSCAN
          lager:info("Starting ~p transfer of ~p from ~p ~p to ~p ~p",
                     [Type, Module, SrcNode, SrcPartition,
                      TargetNode, TargetPartition]),
@@ -205,6 +210,7 @@ start_fold(TargetNode, Module, {Type, Opts}, ParentPid, SslOpts) ->
 
          if AccRecord == {error, vnode_shutdown} ->
                  ?log_info("because the local vnode was shutdown", []),
+%% ERRSCAN
                  throw({be_quiet, error, local_vnode_shutdown_requested});
             true ->
                  ok                     % If not #ho_acc, get badmatch below
@@ -228,12 +234,14 @@ start_fold(TargetNode, Module, {Type, Opts}, ParentPid, SslOpts) ->
                  %% so handoff_complete can only be sent once all of the data is
                  %% written.  handle_handoff_data is a sync call, so once
                  %% we receive the sync the remote side will be up to date.
+%% ERRSCAN
                  lager:debug("~p ~p Sending final sync",
                              [SrcPartition, Module]),
                  ok = TcpMod:send(Socket, <<?PT_MSG_SYNC:8>>),
 
                  case TcpMod:recv(Socket, 0, RecvTimeout) of
                      {ok,[?PT_MSG_SYNC|<<"sync">>]} ->
+%% ERRSCAN
                          lager:debug("~p ~p Final sync received",
                                      [SrcPartition, Module]);
                      {error, timeout} -> exit({shutdown, timeout})
@@ -242,6 +250,7 @@ start_fold(TargetNode, Module, {Type, Opts}, ParentPid, SslOpts) ->
                  FoldTimeDiff = end_fold_time(StartFoldTime),
                  ThroughputBytes = TotalBytes/FoldTimeDiff,
 
+%% ERRSCAN
                  ok = lager:info("~p transfer of ~p from ~p ~p to ~p ~p"
                             " completed: sent ~s bytes in ~p of ~p objects"
                             " in ~.2f seconds (~s/second)",
@@ -276,6 +285,7 @@ start_fold(TargetNode, Module, {Type, Opts}, ParentPid, SslOpts) ->
              gen_fsm:send_event(ParentPid, {handoff_error,
                                             fold_error, Reason}),
              exit({shutdown, {error, Reason}});
+%% ERRSCAN
          throw:{be_quiet, Err, Reason} ->
              gen_fsm:send_event(ParentPid, {handoff_error, Err, Reason});
          Err:Reason ->
@@ -317,6 +327,7 @@ visit_item(K, V, Acc0 = #ho_acc{acksync_threshold = AccSyncThreshold}) ->
 %% Since we can't abort the fold, this clause is just a no-op.
 visit_item2(_K, _V, Acc=#ho_acc{error={error, _Reason}}) ->
     %% When a TCP/SSL error occurs, #ho_acc.error is set to {error, Reason}.
+%% ERRSCAN
     throw(Acc);
 visit_item2(K, V, Acc = #ho_acc{ack = _AccSyncThreshold, acksync_threshold = _AccSyncThreshold}) ->
     #ho_acc{module=Module,
@@ -360,6 +371,7 @@ visit_item2(K, V, Acc) ->
             case Module:encode_handoff_item(K, V) of
                 corrupted ->
                     {Bucket, Key} = K,
+%% ERRSCAN
                     lager:warning("Unreadable object ~p/~p discarded",
                                   [Bucket, Key]),
                     Acc;
@@ -490,15 +502,18 @@ get_handoff_ssl_options() ->
                          ToCheck <- [certfile, keyfile, cacertfile, dhfile],
                          Path <- [proplists:get_value(ToCheck, Props)],
                          Path /= undefined],
+%% ERRSCAN
                 spawn(fun() -> self() ! ZZ end), % Avoid term...never used err
                 %% Props are OK
                 Props
             catch
                 error:{badmatch, {FailProp, BadMat}} ->
+%% ERRSCAN
                     lager:error("SSL handoff config error: property ~p: ~p.",
                                 [FailProp, BadMat]),
                     [];
                 X:Y ->
+%% ERRSCAN
                     lager:error("Failure processing SSL handoff config "
                                 "~p: ~p:~p",
                                 [Props, X, Y]),
@@ -599,11 +614,13 @@ remote_supports_batching(Node) ->
     case catch rpc:call(Node, riak_core_handoff_receiver,
                   supports_batching, []) of
         true ->
+%% ERRSCAN
             lager:debug("remote node supports batching, enabling"),
             true;
         _ ->
             %% whatever the problem here, just revert to the old behavior
             %% which shouldn't matter too much for any single handoff
+%% ERRSCAN
             lager:debug("remote node doesn't support batching"),
             false
     end.

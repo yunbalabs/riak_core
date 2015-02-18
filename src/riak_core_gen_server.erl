@@ -128,6 +128,7 @@
 
 %% API
 -export([start/3, start/4,
+%% ERRSCAN
 	 start_link/3, start_link/4,
 	 call/2, call/3, pcall/3, pcall/4,
 	 cast/2, pcast/3, reply/2,
@@ -200,9 +201,11 @@ start(Mod, Args, Options) ->
 start(Name, Mod, Args, Options) ->
     gen:start(?MODULE, nolink, Name, Mod, Args, Options).
 
+%% ERRSCAN
 start_link(Mod, Args, Options) ->
     gen:start(?MODULE, link, Mod, Args, Options).
 
+%% ERRSCAN
 start_link(Name, Mod, Args, Options) ->
     gen:start(?MODULE, link, Name, Mod, Args, Options).
 
@@ -538,6 +541,7 @@ do_multi_call(Nodes, Name, Req, Timeout) ->
     Tag = make_ref(),
     Caller = self(),
     Receiver =
+%% ERRSCAN
 	spawn(
 	  fun() ->
 		  %% Middleman process. Should be unsensitive to regular

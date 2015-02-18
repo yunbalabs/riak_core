@@ -44,6 +44,7 @@ start_set_net_ticktime_daemon(Node, Time, true) ->
         Dirs = rpc:call(Node, code, get_path, []),
         case lists:member(EbinDir, Dirs) of
             false ->
+%% ERRSCAN
                 lager:info("start_set_net_ticktime_daemon: adding to code path "
                            "for node ~p\n", [Node]),
                 rpc:call(Node, code, add_pathz, [EbinDir]);
@@ -55,10 +56,12 @@ start_set_net_ticktime_daemon(Node, Time, true) ->
             %% worries, we'll try again soon.
             ok
     end,
+%% ERRSCAN
     spawn(Node, fun() ->
                         try
                             register(?REGNAME, self()),
                             %% If we get here, we are the one daemon process
+%% ERRSCAN
                             lager:info("start_set_net_ticktime_daemon: started "
                                        "changing net_ticktime on ~p to ~p\n",
                                  [Node, Time]),
@@ -69,6 +72,7 @@ start_set_net_ticktime_daemon(Node, Time, true) ->
                         end
                 end);
 start_set_net_ticktime_daemon(Node, _Time, false) ->
+%% ERRSCAN
     lager:info("Not starting tick daemon on ~p. Capability unsupported. "
                "Some nodes in the Riak cluster do not have ~p loaded\n",
                [Node, ?MODULE]),
@@ -94,13 +98,16 @@ stop_set_net_ticktime_daemon(Node, true) ->
             error
     end;
 stop_set_net_ticktime_daemon(Node, false) ->
+%% ERRSCAN
     lager:info("Not stopping tick daemon on ~p. Capability unsupported\n", [Node]),
     ok.
 
 async_start_set_net_ticktime_daemons(Time, Nodes) ->
+%% ERRSCAN
     Pids = [spawn(fun() ->
                           start_set_net_ticktime_daemon(Node, Time, true)
                   end) || Node <- Nodes],
+%% ERRSCAN
     spawn(fun() ->
                   %% If a daemon cannot finish in 5 seconds, no worries.
                   %% We want to avoid leaving lots of pids around due to
@@ -112,6 +119,7 @@ async_start_set_net_ticktime_daemons(Time, Nodes) ->
 set_net_ticktime_daemon_loop(Time, Count) ->
     case set_net_ticktime(Time) of
         unchanged ->
+%% ERRSCAN
             lager:info("start_set_net_ticktime_daemon: finished "
                        "changing net_ticktime on ~p to ~p\n", [node(), Time]),
             exit(normal);

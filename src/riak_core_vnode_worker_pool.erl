@@ -64,7 +64,9 @@
         shutdown :: undefined | {pid(), reference()}
     }).
 
+%% ERRSCAN
 start_link(WorkerMod, PoolSize, VNodeIndex, WorkerArgs, WorkerProps) ->
+%% ERRSCAN
     gen_fsm:start_link(?MODULE, [WorkerMod, PoolSize,  VNodeIndex, WorkerArgs, WorkerProps], []).
 
 handle_work(Pid, Work, From) ->
@@ -78,6 +80,7 @@ shutdown_pool(Pid, Wait) ->
     gen_fsm:sync_send_all_state_event(Pid, {shutdown, Wait}, infinity).
 
 init([WorkerMod, PoolSize, VNodeIndex, WorkerArgs, WorkerProps]) ->
+%% ERRSCAN
     {ok, Pid} = poolboy:start_link([{worker_module, riak_core_vnode_worker},
             {worker_args, [VNodeIndex, WorkerArgs, WorkerProps, self()]},
             {worker_callback_mod, WorkerMod},

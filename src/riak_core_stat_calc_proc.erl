@@ -63,7 +63,9 @@
 %%% API
 %%%===================================================================
 
+%% ERRSCAN
 start_link(Stat) ->
+%% ERRSCAN
     gen_server:start_link(?MODULE, [Stat], []).
 
 value(Pid) ->
@@ -98,6 +100,7 @@ handle_cast({value, Value, TS}, State=#state{awaiting=Awaiting,
                                              value=OldValue}) ->
     case Value of
         {error, Reason} ->
+%% ERRSCAN
             lager:debug("stat calc failed: ~p ~p", [Reason]),
             Reply = maybe_tag_stale(OldValue),
             _ = [gen_server:reply(From, Reply) || From <- Awaiting],
@@ -126,6 +129,7 @@ handle_info({'EXIT', _FromPid, Reason}, State=#state{active=undefined,
     {noreply, State};
 handle_info(timeout, State=#state{active=Pid, awaiting=Awaiting, value=Value}) ->
     %% kill the pid, causing the above clause to be processed
+%% ERRSCAN
     lager:debug("killed delinquent stats process ~p", [Pid]),
     exit(Pid, kill),
     %% let the cache get staler, tag so people can detect
@@ -163,6 +167,7 @@ maybe_get_stat(_Stat, From, Pid, Awaiting) ->
 
 do_calc_stat(Stat) ->
     ServerPid = self(),
+%% ERRSCAN
     spawn_link(
       fun() ->
               StatVal = riak_core_stat_q:calc_stat(Stat),

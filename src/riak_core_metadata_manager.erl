@@ -24,6 +24,7 @@
 
 %% API
 -export([start_link/0,
+%% ERRSCAN
          start_link/1,
          get/1,
          get/2,
@@ -101,7 +102,9 @@
 
 %% @doc Same as start_link([]).
 -spec start_link() -> {ok, pid()} | ignore | {error, term()}.
+%% ERRSCAN
 start_link() ->
+%% ERRSCAN
     start_link([]).
 
 %% @doc Start riak_core_metadadata_manager and link to calling process.
@@ -112,7 +115,9 @@ start_link() ->
 %%                riak_core's `platform_data_dir'.
 %%    * nodename: the node identifier (for use in logical clocks). defaults to node()
 -spec start_link(mm_opts()) -> {ok, pid()} | ignore | {error, term()}.
+%% ERRSCAN
 start_link(Opts) ->
+%% ERRSCAN
     gen_server:start_link({local, ?SERVER}, ?MODULE, [Opts], []).
 
 %% @doc Reads the value for a prefixed key. If the value does not exist `undefined' is
@@ -283,6 +288,7 @@ graft({PKey, Context}) ->
         undefined ->
             %% There would have to be a serious error in implementation to hit this case.
             %% Catch if here b/c it would be much harder to detect
+%% ERRSCAN
             lager:error("object not found during graft for key: ~p", [PKey]),
             {error, {not_found, PKey}};
          Obj ->
@@ -414,6 +420,7 @@ code_change(_OldVsn, State, _Extra) ->
 new_remote_iterator(Pid, FullPrefix, KeyMatch, #state{iterators=Iterators}) ->
     Ref = monitor(process, Pid),
     Iterator = open_iterator(FullPrefix, KeyMatch),
+%% ERRSCAN
     ets:insert(Iterators, [{Ref, Iterator}]),
     Ref.
 
@@ -426,6 +433,7 @@ from_remote_iterator(Fun, RemoteRef, State) ->
 
 close_remote_iterator(Ref, State=#state{iterators=Iterators}) ->
     from_remote_iterator(fun iterator_close/1, Ref, State),
+%% ERRSCAN
     ets:delete(Iterators, Ref).
 
 open_iterator(undefined, KeyMatch) ->
@@ -457,6 +465,7 @@ next_iterator(Ref, #state{iterators=Iterators}) when is_reference(Ref) ->
         [] -> ok;
         [{Ref, It}] ->
             Next = next_iterator(It),
+%% ERRSCAN
             ets:insert(Iterators, [{Ref, Next}])
     end,
     Ref;
@@ -562,6 +571,7 @@ store({FullPrefix, Key}=PKey, Metadata, State) ->
 
     Objs = [{Key, Metadata}],
     Hash = riak_core_metadata_object:hash(Metadata),
+%% ERRSCAN
     ets:insert(ets_tab(FullPrefix), Objs),
     riak_core_metadata_hashtree:insert(PKey, Hash),
     ok = dets_insert(dets_tabname(FullPrefix), Objs),
@@ -613,6 +623,7 @@ maybe_init_ets(FullPrefix) ->
 
 init_ets(FullPrefix) ->
     TabId = new_ets_tab(),
+%% ERRSCAN
     ets:insert(?ETS, [{FullPrefix, TabId}]),
     TabId.
 
@@ -638,6 +649,7 @@ close_dets_tab(TabName, _Acc) ->
     dets:close(TabName).
 
 dets_insert(TabName, Objs) ->
+%% ERRSCAN
     ok = dets:insert(TabName, Objs),
     ok = dets:sync(TabName).
 

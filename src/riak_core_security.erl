@@ -421,6 +421,7 @@ authenticate(Username, Password, ConnInfo) ->
                             %% pull the password out of the userdata
                             case lookup("password", UserData) of
                                 undefined ->
+%% ERRSCAN
                                     lager:warning("User ~p is configured for "
                                                   "password authentication, but has "
                                                   "no password", [Username]),
@@ -461,6 +462,7 @@ authenticate(Username, Password, ConnInfo) ->
                                                           auth_mods, []),
                             case proplists:get_value(Source, AuthMods) of
                                 undefined ->
+%% ERRSCAN
                                     lager:warning("User ~p is configured with unknown "
                                                   "authentication source ~p",
                                                   [Username, Source]),
@@ -766,6 +768,7 @@ is_enabled() ->
         _ ->
             false
     catch
+%% ERRSCAN
         throw:{unknown_capability, {riak_core, security}} ->
             false
     end.

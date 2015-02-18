@@ -230,6 +230,7 @@ transfers([]) ->
         end
     catch
         Exception:Reason ->
+%% ERRSCAN
             lager:error("Transfers failed ~p:~p", [Exception,
                     Reason]),
             io:format("Transfers failed, see log for details~n"),
@@ -428,6 +429,7 @@ stage_leave(Node) ->
         end
     catch
         Exception:Reason ->
+%% ERRSCAN
             lager:error("Leave failed ~p:~p", [Exception, Reason]),
             io:format("Leave failed, see log for details~n"),
             error
@@ -454,6 +456,7 @@ stage_remove(Node) ->
         end
     catch
         Exception:Reason ->
+%% ERRSCAN
             lager:error("Remove failed ~p:~p", [Exception, Reason]),
             io:format("Remove failed, see log for details~n"),
             error
@@ -488,6 +491,7 @@ stage_replace(Node1, Node2) ->
         end
     catch
         Exception:Reason ->
+%% ERRSCAN
             lager:error("Node replacement failed ~p:~p", [Exception, Reason]),
             io:format("Node replacement failed, see log for details~n"),
             error
@@ -521,6 +525,7 @@ stage_force_replace(Node1, Node2) ->
         end
     catch
         Exception:Reason ->
+%% ERRSCAN
             lager:error("Forced node replacement failed ~p:~p",
                         [Exception, Reason]),
             io:format("Forced node replacement failed, see log for details~n"),
@@ -539,6 +544,7 @@ stage_resize_ring(["abort"]) ->
         end
     catch
         Exception:Reason ->
+%% ERRSCAN
             lager:error("Abort resize ring request failed ~p:~p",
                         [Exception, Reason]),
             io:format("Abort resize ring request failed, see log for details~n"),
@@ -580,6 +586,7 @@ stage_resize_ring(NewRingSize) ->
         end
     catch
         Exception:Reason ->
+%% ERRSCAN
             lager:error("Resize ring request failed ~p:~p",
                         [Exception, Reason]),
             io:format("Resize ring request failed, see log for details~n"),
@@ -595,6 +602,7 @@ clear_staged([]) ->
         end
     catch
         Exception:Reason ->
+%% ERRSCAN
             lager:error("Failed to clear staged cluster changes ~p:~p",
                         [Exception, Reason]),
             io:format("Failed to clear staged cluster changes, see log "
@@ -915,6 +923,7 @@ add_role(Name, Options, Fun) ->
             io:format("~n"),
             Error
     catch
+%% ERRSCAN
         throw:{error, {invalid_option, Option}} ->
             io:format("Invalid option ~p, options are of the form key=value~n",
                       [Option]),
@@ -936,6 +945,7 @@ alter_role(Name, Options, Fun) ->
             io:format("~n"),
             Error
     catch
+%% ERRSCAN
         throw:{error, {invalid_option, Option}} ->
             io:format("Invalid option ~p, options are of the form key=value~n",
                       [Option]),
@@ -979,6 +989,7 @@ add_source([Users, CIDR, Source | Options]) ->
             io:format("~n"),
             Error
     catch
+%% ERRSCAN
         throw:{error, {invalid_option, Option}} ->
             io:format("Invalid option ~p, options are of the form key=value~n",
                       [Option]);
@@ -1143,6 +1154,7 @@ parse_options([H|T], Acc) ->
         [Key, Value] when is_list(Key), is_list(Value) ->
             parse_options(T, [{string:to_lower(Key), Value}|Acc]);
         _Other ->
+%% ERRSCAN
             throw({error, {invalid_option, H}})
     end.
 

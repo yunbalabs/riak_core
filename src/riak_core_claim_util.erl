@@ -280,6 +280,7 @@ adjacency_matrix(Owners) ->
         adjacency_matrix_populate(Tid, M, Owners, Owners++Owners),
         adjacency_matrix_result(Tid, ets:first(Tid), [])
     after
+%% ERRSCAN
         ets:delete(Tid)
     end.
 
@@ -305,6 +306,7 @@ adjacency_matrix_add_dist(_Tid, _Node, [], _OwnersCycle, _) ->
 adjacency_matrix_add_dist(Tid, Node, M, [OtherNode | OwnersCycle], Distance) ->
     case lists:member(OtherNode, M) of
         true -> % haven't seen this node yet, add distance
+%% ERRSCAN
             ets:insert(Tid, {{Node, OtherNode}, Distance}),
             adjacency_matrix_add_dist(Tid, Node, M -- [OtherNode], OwnersCycle, Distance + 1);
         _ -> % already passed OtherNode
@@ -379,6 +381,7 @@ count(L, NVal) ->
     lists:foldl(fun(E,A) -> orddict:update_counter(E, 1, A) end, Acc0, L).
                          
 rms([]) ->
+%% ERRSCAN
     throw(empty_list);
 rms(L) ->
     Mean = lists:sum(L) / length(L),
@@ -450,6 +453,7 @@ construct(Complete, M, Owners, DAM, NVal) ->
             case Eligible of
                 [] ->
                     %% No eligible nodes - not enough to meet NVal, use any node
+%% ERRSCAN
                     lager:debug("construct -- unable to construct without violating NVal"),
                     {Owners1, DAM1} = prepend_next_owner(M, M, Owners, DAM, NVal),
                     construct(Complete, M, Owners1, DAM1, NVal);

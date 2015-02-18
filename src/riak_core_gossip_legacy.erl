@@ -65,7 +65,9 @@ send_ring(Node, Node) ->
 send_ring(FromNode, ToNode) ->
     gen_server:cast({?MODULE, FromNode}, {send_ring_to, ToNode}).
 
+%% ERRSCAN
 start_link() ->
+%% ERRSCAN
     gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
 
 stop() ->

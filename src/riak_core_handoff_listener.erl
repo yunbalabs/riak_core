@@ -34,10 +34,12 @@
           ssl_opts :: list()
          }).
 
+%% ERRSCAN
 start_link() ->
     PortNum = app_helper:get_env(riak_core, handoff_port),
     IpAddr = app_helper:get_env(riak_core, handoff_ip),
     SslOpts = riak_core_handoff_sender:get_handoff_ssl_options(),
+%% ERRSCAN
     gen_nb_server:start_link(?MODULE, IpAddr, PortNum, [IpAddr, PortNum, SslOpts]).
 
 get_handoff_ip() ->
@@ -53,6 +55,7 @@ init([IpAddr, PortNum, SslOpts]) ->
     %% explicitly try to spawn a new proc that will try to register
     %% the riak_kv_handoff_listener name.
     catch exit(whereis(riak_kv_handoff_listener), kill),
+%% ERRSCAN
     process_proxy:start_link(riak_kv_handoff_listener, ?MODULE),
 
     {ok, #state{portnum=PortNum, ipaddr=IpAddr, ssl_opts = SslOpts}}.

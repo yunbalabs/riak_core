@@ -74,7 +74,9 @@
 %% InitParams = [any()]
 %% Result = {ok, pid()} | {error, any()}
 %% @doc Start server listening on IpAddr:Port
+%% ERRSCAN
 start_link(CallbackModule, IpAddr, Port, InitParams) ->
+%% ERRSCAN
   gen_server:start_link(?MODULE, [CallbackModule, IpAddr, Port, InitParams], []).
 
 %% @hidden
@@ -175,6 +177,7 @@ listen_on(CallbackModule, IpAddrStr, Port) ->
         {ok, IpAddr} ->
             listen_on(CallbackModule, IpAddr, Port);
         Err ->
+%% ERRSCAN
             lager:critical("Cannot start listener for ~p on invalid address ~p:~p", [CallbackModule, IpAddrStr, Port]),
             Err
     end.

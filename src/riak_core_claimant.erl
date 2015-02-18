@@ -84,7 +84,9 @@
 %%%===================================================================
 
 %% @doc Spawn and register the riak_core_claimant server
+%% ERRSCAN
 start_link() ->
+%% ERRSCAN
     gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
 
 %% @doc Determine how the cluster will be affected by the staged changes,
@@ -666,6 +668,7 @@ do_maybe_force_ring_update(Ring) ->
         {ok, NextRing} ->
             case same_plan(Ring, NextRing) of
                 false ->
+%% ERRSCAN
                     lager:warning("Forcing update of stalled ring"),
                     riak_core_ring_manager:force_update();
                 true ->
@@ -796,6 +799,7 @@ enable_ensembles(Ring) ->
             %% that ensembles are properly bootstrapped.
             riak_ensemble_manager:enable(),
             riak_core_ring_manager:force_update(),
+%% ERRSCAN
             lager:info("Activated consensus subsystem for cluster");
         _ ->
             ok
@@ -874,6 +878,7 @@ bootstrap_members(Ring) ->
             ok;
         _ ->
             Self = self(),
+%% ERRSCAN
             spawn_link(fun() ->
                                async_bootstrap_members(Self, Changes)
                        end),
@@ -1043,11 +1048,13 @@ change({join, Node}, Ring) ->
     Ring2;
 change({leave, Node}, Ring) ->
     Members = riak_core_ring:all_members(Ring),
+%% ERRSCAN
     lists:member(Node, Members) orelse throw(invalid_member),
     Ring2 = riak_core_ring:leave_member(Node, Ring, Node),
     Ring2;
 change({remove, Node}, Ring) ->
     Members = riak_core_ring:all_members(Ring),
+%% ERRSCAN
     lists:member(Node, Members) orelse throw(invalid_member),
     Ring2 = riak_core_ring:remove_member(Node, Ring, Node),
     Ring2;
@@ -1514,14 +1521,18 @@ no_log(_, _) ->
     ok.
 
 log(debug, {Msg, Args}) ->
+%% ERRSCAN
     lager:debug(Msg, Args);
 log(ownership, {Idx, NewOwner, CState}) ->
     Owner = riak_core_ring:index_owner(CState, Idx),
+%% ERRSCAN
     lager:debug("(new-owner) ~b :: ~p -> ~p~n", [Idx, Owner, NewOwner]);
 log(reassign, {Idx, NewOwner, CState}) ->
     Owner = riak_core_ring:index_owner(CState, Idx),
+%% ERRSCAN
     lager:debug("(reassign) ~b :: ~p -> ~p~n", [Idx, Owner, NewOwner]);
 log(next, {Idx, Owner, NewOwner}) ->
+%% ERRSCAN
     lager:debug("(pending) ~b :: ~p -> ~p~n", [Idx, Owner, NewOwner]);
 log(_, _) ->
     ok.

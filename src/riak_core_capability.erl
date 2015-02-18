@@ -113,7 +113,9 @@
 %%% API
 %%%===================================================================
 
+%% ERRSCAN
 start_link() ->
+%% ERRSCAN
     gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
 
 %% @doc Register a new capability providing a list of supported modes, the
@@ -137,6 +139,7 @@ register(Capability, Supported, Default) ->
 get(Capability) ->
     case get(Capability, '$unknown') of
         '$unknown' ->
+%% ERRSCAN
             throw({unknown_capability, Capability});
         Result ->
             Result
@@ -266,6 +269,7 @@ schedule_tick() ->
 reload(State=#state{registered=[]}) ->
     State;
 reload(State) ->
+%% ERRSCAN
     lager:info("Reloading capabilities"),
     State2 =
         orddict:fold(
@@ -372,6 +376,7 @@ add_node_capabilities(Node, Capabilities, State) ->
 %% to update rings without going through the capability server.
 update_local_cache(State) ->
     Supported = get_supported(node(), State),
+%% ERRSCAN
     ets:insert(?ETS, {'$supported', Supported}),
     ok.
 
@@ -551,14 +556,20 @@ get_app_overrides(App) ->
 process_capability_changes(OldModes, NewModes) ->
     Diff = riak_core_util:orddict_delta(OldModes, NewModes),
     orddict:fold(fun(Capability, {'$none', New}, _) ->
+%% ERRSCAN
                          ets:insert(?ETS, {Capability, New}),
+%% ERRSCAN
                          lager:info("New capability: ~p = ~p", [Capability, New]);
                     (Capability, {Old, '$none'}, _) ->
+%% ERRSCAN
                          ets:delete(?ETS, Capability),
+%% ERRSCAN
                          lager:info("Removed capability ~p (previously: ~p)",
                                     [Capability, Old]);
                     (Capability, {Old, New}, _) ->
+%% ERRSCAN
                          ets:insert(?ETS, {Capability, New}),
+%% ERRSCAN
                          lager:info("Capability changed: ~p / ~p -> ~p",
                                     [Capability, Old, New])
                  end, ok, Diff).
@@ -621,6 +632,7 @@ query_capability(Node, Capability, DefaultSup, {App, Var, Map}) ->
     end.
 
 save_registered(Registered) ->
+%% ERRSCAN
     application:set_env(riak_core, registered_capabilities, Registered).
 
 load_registered() ->

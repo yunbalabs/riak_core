@@ -25,7 +25,9 @@
 -define(CHILD(I, Type, Timeout), {I, {riak_core_stat_calc_proc, start_link, [I]}, permanent, Timeout, Type, [riak_core_stat_calc_proc]}).
 -define(CHILD(I, Type), ?CHILD(I, Type, 5000)).
 
+%% ERRSCAN
 start_link() ->
+%% ERRSCAN
     supervisor:start_link({local, ?MODULE}, ?MODULE, []).
 
 init([]) ->

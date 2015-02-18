@@ -23,6 +23,7 @@
 
 %% API
 -export([start_link/0,
+%% ERRSCAN
          start_link/4,
          broadcast/2,
          ring_update/1,
@@ -110,11 +111,13 @@
 %% In addition, after the broadcast server is started, a callback is registered with ring_events
 %% to generate membership updates as the ring changes.
 -spec start_link() -> {ok, pid()} | ignore | {error, term()}.
+%% ERRSCAN
 start_link() ->
     {ok, Ring} = riak_core_ring_manager:get_my_ring(),
     Members = all_broadcast_members(Ring),
     {InitEagers, InitLazys} = init_peers(Members),
     Mods = app_helper:get_env(riak_core, broadcast_mods, [riak_core_metadata_manager]),
+%% ERRSCAN
     Res = start_link(Members, InitEagers, InitLazys, Mods),
     riak_core_ring_events:add_sup_callback(fun ?MODULE:ring_update/1),
     Res.
@@ -133,7 +136,9 @@ start_link() ->
 %% ring_events is registered. Use start_link/0.
 -spec start_link([nodename()], [nodename()], [nodename()], [module()]) ->
                         {ok, pid()} | ignore | {error, term}.
+%% ERRSCAN
 start_link(InitMembers, InitEagers, InitLazys, Mods) ->
+%% ERRSCAN
     gen_server:start_link({local, ?SERVER}, ?MODULE,
                           [InitMembers, InitEagers, InitLazys, Mods], []).
 
@@ -351,6 +356,7 @@ handle_graft({ok, Message}, MessageId, Mod, Round, Root, From, State) ->
     _ = send({broadcast, MessageId, Message, Mod, Round, Root, node()}, From),
     State1;
 handle_graft({error, Reason}, _MessageId, Mod, _Round, _Root, _From, State) ->
+%% ERRSCAN
     lager:error("unable to graft message from ~p. reason: ~p", [Mod, Reason]),
     State.
 
@@ -421,6 +427,7 @@ maybe_exchange(Peer, State=#state{mods=[Mod | _],exchanges=Exchanges}) ->
 exchange(Peer, State=#state{mods=[Mod | Mods],exchanges=Exchanges}) ->
     State1 = case Mod:exchange(Peer) of
                  {ok, Pid} ->
+%% ERRSCAN
                      lager:debug("started ~p exchange with ~p (~p)", [Mod, Peer, Pid]),
                      Ref = monitor(process, Pid),
                      State#state{exchanges=[{Mod, Peer, Ref, Pid} | Exchanges]};

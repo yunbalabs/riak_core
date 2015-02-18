@@ -65,6 +65,7 @@
 -behaviour(gen_server).
 
 -export([start_link/0,
+%% ERRSCAN
          start_link/1,
          get_my_ring/0,
          get_raw_ring/0,
@@ -109,12 +110,16 @@
 %% Public API
 %% ===================================================================
 
+%% ERRSCAN
 start_link() ->
+%% ERRSCAN
     gen_server:start_link({local, ?MODULE}, ?MODULE, [live], []).
 
 
 %% Testing entry point
+%% ERRSCAN
 start_link(test) ->
+%% ERRSCAN
     gen_server:start_link({local, ?MODULE}, ?MODULE, [test], []).
 
 
@@ -241,6 +246,7 @@ do_write_ringfile(Ring, FN) ->
         ok = riak_core_util:replace_file(FN, term_to_binary(Ring))
     catch
         _:Err ->
+%% ERRSCAN
             lager:error("Unable to write ring to \"~s\" - ~p\n", [FN, Err]),
             {error,Err}
     end.
@@ -338,13 +344,17 @@ reload_ring(live) ->
         {ok, RingFile} ->
             case riak_core_ring_manager:read_ringfile(RingFile) of
                 {error, Reason} ->
+%% ERRSCAN
                     lager:critical("Failed to read ring file: ~p",
+%% ERRSCAN
                                    [lager:posix_error(Reason)]),
+%% ERRSCAN
                     throw({error, Reason});
                 Ring ->
                     %% Upgrade the ring data structure if necessary.
                     case riak_core_ring:legacy_ring(Ring) of
                         true ->
+%% ERRSCAN
                             lager:info("Upgrading legacy ring"),
                             riak_core_ring:upgrade(Ring);
                         false ->
@@ -352,11 +362,15 @@ reload_ring(live) ->
                     end
             end;
         {error, not_found} ->
+%% ERRSCAN
             lager:warning("No ring file available."),
             riak_core_ring:fresh();
         {error, Reason} ->
+%% ERRSCAN
             lager:critical("Failed to load ring file: ~p",
+%% ERRSCAN
                            [lager:posix_error(Reason)]),
+%% ERRSCAN
             throw({error, Reason})
     end.
 
@@ -399,6 +413,7 @@ handle_call({ring_trans, Fun, Args}, _From, State=#state{raw_ring=Ring}) ->
         {ignore, Reason} ->
             {reply, {not_changed, Reason}, State};
         Other ->
+%% ERRSCAN
             lager:error("ring_trans: invalid return value: ~p",
                                    [Other]),
             {reply, not_changed, State}
@@ -436,6 +451,7 @@ handle_info(inactivity_timeout, State=#state{ring_changed_time=Then}) ->
     DeltaMS = DeltaUS div 1000,
     case DeltaMS >= ?PROMOTE_TIMEOUT of
         true ->
+%% ERRSCAN
             lager:debug("Promoting ring after ~p", [DeltaMS]),
             promote_ring(),
             State2 = State#state{inactivity_timer=undefined},
@@ -489,12 +505,14 @@ run_fixups([{App, Fixup}|T], BucketName, BucketProps) ->
         {ok, NewBucketProps} ->
             NewBucketProps;
         {error, Reason} ->
+%% ERRSCAN
             lager:error("Error while running bucket fixup module "
                 "~p from application ~p on bucket ~p: ~p", [Fixup, App,
                     BucketName, Reason]),
             BucketProps
     catch
         What:Why ->
+%% ERRSCAN
             lager:error("Crash while running bucket fixup module "
                 "~p from application ~p on bucket ~p : ~p:~p", [Fixup, App,
                     BucketName, What, Why]),
@@ -521,6 +539,7 @@ set_timer(Duration, State) ->
 setup_ets(Mode) ->
     %% Destroy prior version of ETS table. This is necessary for certain
     %% eunit tests, but is unneeded for normal Riak operation.
+%% ERRSCAN
     catch ets:delete(?ETS),
     Access = case Mode of
                  live -> protected;
@@ -528,10 +547,12 @@ setup_ets(Mode) ->
              end,
     ?ETS = ets:new(?ETS, [named_table, Access, {read_concurrency, true}]),
     Id = reset_ring_id(),
+%% ERRSCAN
     ets:insert(?ETS, [{changes, 0}, {promoted, 0}, {id, Id}]),
     ok.
 
 cleanup_ets(test) ->
+%% ERRSCAN
     ets:delete(?ETS).
 
 reset_ring_id() ->
@@ -603,7 +624,9 @@ set_ring_global(Ring) ->
                {raw_ring, Ring},
                {id, {Epoch,Id+1}},
                {chashbin, CHBin} | BucketMeta2],
+%% ERRSCAN
     ets:insert(?ETS, Actions),
+%% ERRSCAN
     ets:match_delete(?ETS, {{bucket, '_'}, undefined}),
     case riak_core_mochiglobal:get(?RING_KEY) of
         ets ->
@@ -656,6 +679,7 @@ prune_list_test() ->
 
 set_ring_global_test() ->
     setup_ets(test),
+%% ERRSCAN
     application:set_env(riak_core,ring_creation_size, 4),
     Ring = riak_core_ring:fresh(),
     set_ring_global(Ring),
@@ -665,6 +689,7 @@ set_ring_global_test() ->
 
 set_my_ring_test() ->
     setup_ets(test),
+%% ERRSCAN
     application:set_env(riak_core,ring_creation_size, 4),
     Ring = riak_core_ring:fresh(),
     set_ring_global(Ring),
@@ -679,11 +704,16 @@ refresh_my_ring_test() ->
                      {cluster_name, "test"}],
     [begin
          put({?MODULE,AppKey}, app_helper:get_env(riak_core, AppKey)),
+%% ERRSCAN
          ok = application:set_env(riak_core, AppKey, Val)
      end || {AppKey, Val} <- Core_Settings],
+%% ERRSCAN
     riak_core_ring_events:start_link(),
+%% ERRSCAN
     riak_core_ring_manager:start_link(test),
+%% ERRSCAN
     riak_core_vnode_sup:start_link(),
+%% ERRSCAN
     riak_core_vnode_master:start_link(riak_core_vnode),
     riak_core_test_util:setup_mockring1(),
     ?assertEqual(ok, riak_core_ring_manager:refresh_my_ring()),
@@ -691,6 +721,7 @@ refresh_my_ring_test() ->
     %% Cleanup the ring file created for this test
     {ok, RingFile} = find_latest_ringfile(),
     file:delete(RingFile),
+%% ERRSCAN
     [ok = application:set_env(riak_core, AppKey, get({?MODULE, AppKey}))
      || {AppKey, _Val} <- Core_Settings],
     ok.

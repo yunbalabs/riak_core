@@ -30,6 +30,7 @@
 start_vnode(Mod, Index, ForwardTo) when is_integer(Index) -> 
     supervisor_pre_r14b04:start_child(?MODULE, [Mod, Index, ForwardTo]).
 
+%% ERRSCAN
 start_link() ->
     %% We use a custom copy of the supervisor module that is expected to be
     %% part of R14B04 or R15. This includes the patch that allows
@@ -37,6 +38,7 @@ start_link() ->
     %% This is needed because we need to make sure vnode shutdown triggers
     %% async worker pool shutdown AND blocks waiting for the worker pool to
     %% terminate.
+%% ERRSCAN
     supervisor_pre_r14b04:start_link({local, ?MODULE}, ?MODULE, []).
 
 %% @private
@@ -44,5 +46,6 @@ init([]) ->
     {ok, 
      {{simple_one_for_one, 10, 10}, 
       [{undefined,
+%% ERRSCAN
         {riak_core_vnode, start_link, []},
       temporary, 300000, worker, dynamic}]}}.

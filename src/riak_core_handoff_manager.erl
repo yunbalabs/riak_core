@@ -72,7 +72,9 @@
 %%% API
 %%%===================================================================
 
+%% ERRSCAN
 start_link() ->
+%% ERRSCAN
     gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
 
 init([]) ->
@@ -185,6 +187,7 @@ handle_call({add_inbound,SSLOpts},_From,State=#state{handoffs=HS}) ->
 handle_call({set_recv_data, Recv, Data}, _From, State=#state{handoffs=HS}) ->
     case lists:keyfind(Recv, #handoff_status.transport_pid, HS) of
         false ->
+%% ERRSCAN
             throw({error, "set_recv_data called for non-existing receiver",
                    Recv, Data});
         #handoff_status{}=H ->
@@ -208,6 +211,7 @@ handle_call({status, Filter}, _From, State=#state{handoffs=HS}) ->
     {reply, Status, State};
 
 handle_call({set_concurrency,Limit},_From,State=#state{handoffs=HS}) ->
+%% ERRSCAN
     application:set_env(riak_core,handoff_concurrency,Limit),
     case Limit < erlang:length(HS) of
         true ->
@@ -252,6 +256,7 @@ handle_cast({add_exclusion, {Mod, Idx}}, State=#state{excl=Excl}) ->
 handle_cast({status_update, ModSrcTgt, StatsUpdate}, State=#state{handoffs=HS}) ->
     case lists:keyfind(ModSrcTgt, #handoff_status.mod_src_tgt, HS) of
         false ->
+%% ERRSCAN
             lager:error("status_update for non-existing handoff ~p", [ModSrcTgt]),
             {noreply, State};
         HO ->
@@ -297,9 +302,11 @@ handle_info({'DOWN', Ref, process, _Pid, Reason}, State=#state{handoffs=HS}) ->
                     X when X == max_concurrency orelse
                            (element(1, X) == shutdown andalso
                             element(2, X) == max_concurrency) ->
+%% ERRSCAN
                         lager:info("An ~w handoff of partition ~w ~w was terminated for reason: ~w~n", [Dir,M,I,Reason]),
                         true;
                     _ ->
+%% ERRSCAN
                         lager:error("An ~w handoff of partition ~w ~w was terminated for reason: ~w~n", [Dir,M,I,Reason]),
                         true
                 end,
@@ -337,6 +344,7 @@ handle_info({'DOWN', Ref, process, _Pid, Reason}, State=#state{handoffs=HS}) ->
                  NewHS} ->
                     %% In this case the vnode died and the handoff
                     %% sender must be killed.
+%% ERRSCAN
                     lager:error("An ~w handoff of partition ~w ~w was "
                                 "terminated because the vnode died",
                                 [Dir, M, I]),
@@ -617,6 +625,7 @@ kill_xfer_i(ModSrcTarget, Reason, HS) ->
                 undefined ->
                     ok;
                 _ ->
+%% ERRSCAN
                     lager:info(Msg, [Type, Mod, SrcNode, SrcPartition,
                                      TargetNode, TargetPartition, Reason])
             end,
@@ -640,14 +649,18 @@ handoff_change_enabled_setting(EnOrDis, Direction) ->
     end.
 
 handoff_enable(inbound) ->
+%% ERRSCAN
     application:set_env(riak_core, disable_inbound_handoff, false);
 handoff_enable(outbound) ->
+%% ERRSCAN
     application:set_env(riak_core, disable_outbound_handoff, false).
 
 handoff_disable(inbound) ->
+%% ERRSCAN
     application:set_env(riak_core, disable_inbound_handoff, true),
     kill_handoffs_in_direction(inbound);
 handoff_disable(outbound) ->
+%% ERRSCAN
     application:set_env(riak_core, disable_outbound_handoff, true),
     kill_handoffs_in_direction(outbound).
 
@@ -658,13 +671,17 @@ handoff_disable(outbound) ->
 -ifdef (TEST).
 
 handoff_test_ () ->
+%% ERRSCAN
     {spawn,
      {setup,
 
       %% called when the tests start and complete...
       fun () ->
+%% ERRSCAN
               {ok, ManPid} = start_link(),
+%% ERRSCAN
               {ok, RSupPid} = riak_core_handoff_receiver_sup:start_link(),
+%% ERRSCAN
               {ok, SSupPid} = riak_core_handoff_sender_sup:start_link(),
               [ManPid, RSupPid, SSupPid]
       end,

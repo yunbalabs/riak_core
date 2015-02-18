@@ -219,6 +219,7 @@ exact_iterator(Idx, CHBin) ->
 -include_lib("eunit/include/eunit.hrl").
 
 basic_test_() ->
+%% ERRSCAN
     {spawn,
      {timeout, 120,
       fun() ->

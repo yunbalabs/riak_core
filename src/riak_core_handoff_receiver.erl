@@ -24,6 +24,7 @@
 -include("riak_core_handoff.hrl").
 -behaviour(riak_core_gen_server).
 -export([start_link/0,                          % Don't use SSL
+%% ERRSCAN
          start_link/1,                          % SSL options list, empty=no SSL
          set_socket/2,
          supports_batching/0]).
@@ -46,10 +47,14 @@
 %% set the timeout for the vnode to process the handoff_data msg to 60s
 -define(VNODE_TIMEOUT, 60000).
 
+%% ERRSCAN
 start_link() ->
+%% ERRSCAN
     start_link([]).
 
+%% ERRSCAN
 start_link(SslOpts) ->
+%% ERRSCAN
     riak_core_gen_server:start_link(?MODULE, [SslOpts], []).
 
 set_socket(Pid, Socket) ->
@@ -82,11 +87,13 @@ handle_call({set_socket, Socket0}, _From, State = #state{ssl_opts = SslOpts}) ->
 
 handle_info({tcp_closed,_Socket},State=#state{partition=Partition,count=Count,
                                               peer=Peer}) ->
+%% ERRSCAN
     lager:info("Handoff receiver for partition ~p exited after processing ~p"
                           " objects from ~p", [Partition, Count, Peer]),
     {stop, normal, State};
 handle_info({tcp_error, _Socket, Reason}, State=#state{partition=Partition,count=Count,
                                                        peer=Peer}) ->
+%% ERRSCAN
     lager:info("Handoff receiver for partition ~p exited after processing ~p"
                           " objects from ~p: TCP error ~p", [Partition, Count, Peer, Reason]),
     {stop, normal, State};
@@ -94,6 +101,7 @@ handle_info({tcp, Socket, Data}, State) ->
     [MsgType|MsgData] = Data,
     case catch(process_message(MsgType, MsgData, State)) of
         {'EXIT', Reason} ->
+%% ERRSCAN
             lager:error("Handoff receiver for partition ~p exited abnormally after "
                                    "processing ~p objects from ~p: ~p", [State#state.partition, State#state.count, State#state.peer, Reason]),
             {stop, normal, State};
@@ -111,6 +119,7 @@ handle_info({ssl_error, Socket, Reason}, State) ->
 handle_info({ssl, Socket, Data}, State) ->
     handle_info({tcp, Socket, Data}, State);
 handle_info(timeout, State) ->
+%% ERRSCAN
             lager:error("Handoff receiver for partition ~p timed out after "
                                    "processing ~p objects from ~p.", [State#state.partition, State#state.count, State#state.peer]),
     {stop, normal, State}.
@@ -118,6 +127,7 @@ handle_info(timeout, State) ->
 process_message(?PT_MSG_INIT, MsgData, State=#state{vnode_mod=VNodeMod,
                                                     peer=Peer}) ->
     <<Partition:160/integer>> = MsgData,
+%% ERRSCAN
     lager:info("Receiving handoff data for partition ~p:~p from ~p", [VNodeMod, Partition, Peer]),
     {ok, VNode} = riak_core_vnode_master:get_vnode_pid(Partition, VNodeMod),
     Data = [{mod_src_tgt, {VNodeMod, undefined, Partition}},

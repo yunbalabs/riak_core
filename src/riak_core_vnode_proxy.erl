@@ -51,8 +51,10 @@ reg_name(Mod, Index) ->
 reg_name(Mod, Index, Node) ->
     {reg_name(Mod, Index), Node}.
 
+%% ERRSCAN
 start_link(Mod, Index) ->
     RegName = reg_name(Mod, Index),
+%% ERRSCAN
     proc_lib:start_link(?MODULE, init, [[self(), RegName, Mod, Index]]).
 
 init([Parent, RegName, Mod, Index]) ->
@@ -74,6 +76,7 @@ init([Parent, RegName, Mod, Index]) ->
             true ->
                 Interval;
             false ->
+%% ERRSCAN
                 lager:warning("Setting riak_core/vnode_check_interval to ~b",
                               [Threshold div 2]),
                 Threshold div 2
@@ -83,6 +86,7 @@ init([Parent, RegName, Mod, Index]) ->
             true ->
                 RequestInterval;
             false ->
+%% ERRSCAN
                 lager:warning("Setting riak_core/vnode_check_request_interval "
                               "to ~b", [SafeInterval div 2]),
                 SafeInterval div 2
@@ -339,6 +343,7 @@ fake_loop_block() ->
 overload_test_() ->
     {timeout, 900, {foreach,
      fun() ->
+%% ERRSCAN
              VnodePid = spawn(fun fake_loop/0),
              meck:new(riak_core_vnode_manager, [passthrough]),
              meck:expect(riak_core_vnode_manager, get_vnode_pid,
@@ -350,6 +355,7 @@ overload_test_() ->
                                                             ok
                                                         end),
 
+%% ERRSCAN
              {ok, ProxyPid} = riak_core_vnode_proxy:start_link(fakemod, 0),
              unlink(ProxyPid),
              {VnodePid, ProxyPid}

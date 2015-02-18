@@ -50,7 +50,9 @@
 %% API
 %%===================================================================
 
+%% ERRSCAN
 start_link() ->
+%% ERRSCAN
     gen_server:start_link({local, ?SERVER}, ?MODULE, [], []).
 
 stop() ->
@@ -86,6 +88,7 @@ all_events({trace, Pid, call, {M,F,A}}) ->
     [{node(Pid), {M,F,A}}].
 
 test_all_events(Ms) ->
+%% ERRSCAN
     {ok, _Pid} = riak_core_tracer:start_link(),
     riak_core_tracer:reset(),
     riak_core_tracer:filter(Ms, fun all_events/1),

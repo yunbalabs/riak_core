@@ -89,11 +89,13 @@ handle_event({monitor, Pid, Type, Info}, State=#state{timer_ref=TimerRef}) ->
     %% Reset the inactivity timeout
     NewTimerRef = reset_timer(TimerRef),
     {Fmt, Args} = format_pretty_proc_info(Pid, almost_current_function),
+%% ERRSCAN
     lager:info("monitor ~w ~w "++ Fmt ++ " ~w",
                           [Type, Pid] ++ Args ++ [Info]),
     {ok, State#state{timer_ref=NewTimerRef}};
 handle_event(Event, State=#state{timer_ref=TimerRef}) ->
     NewTimerRef = reset_timer(TimerRef),
+%% ERRSCAN
     lager:info("Monitor got ~p", [Event]),
     {ok, State#state{timer_ref=NewTimerRef}}.
 
@@ -135,6 +137,7 @@ handle_info(inactivity_timeout, State) ->
     %% so hibernate to free up resources.
     {ok, State, hibernate};
 handle_info(Info, State) ->
+%% ERRSCAN
     lager:info("handle_info got ~p", [Info]),
     {ok, State}.
 

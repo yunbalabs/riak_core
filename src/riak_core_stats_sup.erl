@@ -25,7 +25,9 @@
 -define(CHILD(I, Type, Timeout), {I, {I, start_link, []}, permanent, Timeout, Type, [I]}).
 -define(CHILD(I, Type), ?CHILD(I, Type, 5000)).
 
+%% ERRSCAN
 start_link() ->
+%% ERRSCAN
     supervisor:start_link({local, ?MODULE}, ?MODULE, []).
 
 init([]) ->

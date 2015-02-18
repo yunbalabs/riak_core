@@ -253,6 +253,7 @@ check_tainted(Ring=?CHSTATE{}, Msg) ->
             riak_core:stop(Msg),
             ok;
         {{ok, true}, false} ->
+%% ERRSCAN
             lager:error(Msg),
             ok;
         _ ->
@@ -1793,6 +1794,7 @@ sequence_test() ->
     ?assertEqual(B3?CHSTATE.chring, C4?CHSTATE.chring).
 
 param_fresh_test() ->
+%% ERRSCAN
     application:set_env(riak_core,ring_creation_size,4),
     ?assert(equal_cstate(fresh(), fresh(4, node()))),
     ?assertEqual(owner_node(fresh()),node()).

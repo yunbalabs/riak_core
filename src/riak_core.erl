@@ -40,6 +40,7 @@ stop() -> stop("riak stop requested").
 
 -ifdef(TEST).
 stop(Reason) ->
+%% ERRSCAN
     lager:notice("~p", [Reason]),
     % if we're in test mode, we don't want to halt the node, so instead
     % we just stop the application.
@@ -48,6 +49,7 @@ stop(Reason) ->
 stop(Reason) ->
     % we never do an application:stop because that makes it very hard
     %  to really halt the runtime, which is what we need here.
+%% ERRSCAN
     lager:notice("~p", [Reason]),
     init:stop().
 -endif.
@@ -371,8 +373,10 @@ register_mod(App, Module, Type) when is_atom(Type) ->
     end,
     case application:get_env(riak_core, Type) of
         undefined ->
+%% ERRSCAN
             application:set_env(riak_core, Type, [{App,Module}]);
         {ok, Mods} ->
+%% ERRSCAN
             application:set_env(riak_core, Type,
                 lists:usort([{App,Module}|Mods]))
     end.
@@ -380,8 +384,10 @@ register_mod(App, Module, Type) when is_atom(Type) ->
 register_metadata(App, Value, Type) ->
     case application:get_env(riak_core, Type) of
         undefined ->
+%% ERRSCAN
             application:set_env(riak_core, Type, [{App,Value}]);
         {ok, Values} ->
+%% ERRSCAN
             application:set_env(riak_core, Type,
                 lists:usort([{App,Value}|Values]))
     end.
@@ -389,8 +395,10 @@ register_metadata(App, Value, Type) ->
 register_proplist({Key, Value}, Type) ->
     case application:get_env(riak_core, Type) of
         undefined ->
+%% ERRSCAN
             application:set_env(riak_core, Type, [{Key, Value}]);
         {ok, Values} ->
+%% ERRSCAN
             application:set_env(riak_core, Type, lists:keystore(Key, 1,
                                                                 Values,
                                                                 {Key, Value}))
@@ -460,12 +468,14 @@ wait_for_application(App, Elapsed) ->
         true when Elapsed == 0 ->
             ok;
         true when Elapsed > 0 ->
+%% ERRSCAN
             lager:info("Wait complete for application ~p (~p seconds)", [App, Elapsed div 1000]),
             ok;
         false ->
             %% Possibly print a notice.
             ShouldPrint = Elapsed rem ?WAIT_PRINT_INTERVAL == 0,
             case ShouldPrint of
+%% ERRSCAN
                 true -> lager:info("Waiting for application ~p to start (~p seconds).", [App, Elapsed div 1000]);
                 false -> skip
             end,
@@ -480,12 +490,14 @@ wait_for_service(Service, Elapsed) ->
         true when Elapsed == 0 ->
             ok;
         true when Elapsed > 0 ->
+%% ERRSCAN
             lager:info("Wait complete for service ~p (~p seconds)", [Service, Elapsed div 1000]),
             ok;
         false ->
             %% Possibly print a notice.
             ShouldPrint = Elapsed rem ?WAIT_PRINT_INTERVAL == 0,
             case ShouldPrint of
+%% ERRSCAN
                 true -> lager:info("Waiting for service ~p to start (~p seconds)", [Service, Elapsed div 1000]);
                 false -> skip
             end,

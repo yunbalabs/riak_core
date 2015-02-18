@@ -131,6 +131,7 @@ ensure_vnodes_started({App,Mod}, Ring) ->
     %%       right away to trigger possible handoffs) and riak_kv
     %%       (needed to support those vnodes).  The hack does not fix
     %%       that dependency: internal techdebt todo list #A7 does.
+%% ERRSCAN
     spawn_link(fun() ->
     %%                 Use a registered name as a lock to prevent the same
     %%                 vnode module from being started twice.

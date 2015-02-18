@@ -74,6 +74,7 @@ set_bucket(StoreFun, Bucket, BucketProps0) ->
             NewBucket = merge_props(BucketProps, OldBucket),
             StoreFun(Bucket, NewBucket);
         {error, Details} ->
+%% ERRSCAN
             lager:error("Bucket properties validation failed ~p~n", [Details]),
             {error, Details}
     end.
@@ -221,7 +222,9 @@ simple_set_test() ->
     %% (that's where the usual defaults are set at startup),
     %% while also not adding any trash that might affect other tests
     append_bucket_defaults([]),
+%% ERRSCAN
     riak_core_ring_events:start_link(),
+%% ERRSCAN
     riak_core_ring_manager:start_link(test),
     ok = set_bucket(a_bucket,[{key,value}]),
     Bucket = get_bucket(a_bucket),

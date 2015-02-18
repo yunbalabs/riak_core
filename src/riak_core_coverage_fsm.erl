@@ -126,7 +126,9 @@ behaviour_info(_) ->
 %% @doc Start a riak_core_coverage_fsm.
 -spec start_link(module(), from(), [term()]) ->
                         {ok, pid()} | ignore | {error, term()}.
+%% ERRSCAN
 start_link(Mod, From, RequestArgs) ->
+%% ERRSCAN
     gen_fsm:start_link(?MODULE, [Mod, From, RequestArgs], []).
 
 %% ===================================================================
@@ -138,6 +140,7 @@ start_link(Mod, From, RequestArgs) ->
 %% Create a coverage FSM for testing.
 test_link(Mod, From, RequestArgs, _Options, StateProps) ->
     Timeout = 60000,
+%% ERRSCAN
     gen_fsm:start_link(?MODULE,
                        {test,
                         [Mod,

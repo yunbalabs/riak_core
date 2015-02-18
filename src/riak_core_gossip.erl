@@ -71,7 +71,9 @@ send_ring(Node, Node) ->
 send_ring(FromNode, ToNode) ->
     gen_server:cast({?MODULE, FromNode}, {send_ring_to, ToNode}).
 
+%% ERRSCAN
 start_link() ->
+%% ERRSCAN
     gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
 
 stop() ->
@@ -274,6 +276,7 @@ handle_cast({rejoin, RingIn}, State) ->
             case riak_core:join(Legacy, node(), OtherNode, true, true) of
                 ok -> ok;
                 {error, Reason} ->
+%% ERRSCAN
                     lager:error("Could not rejoin cluster: ~p", [Reason]),
                     ok
             end,
@@ -388,12 +391,15 @@ do_log_membership_changes([], [{NewNode, NewStatus}|New]) ->
     do_log_membership_changes([], New).
 
 log_node_changed(Node, Old, New) ->
+%% ERRSCAN
     lager:info("'~s' changed from '~s' to '~s'~n", [Node, Old, New]).
 
 log_node_added(Node, New) ->
+%% ERRSCAN
     lager:info("'~s' joined cluster with status '~s'~n", [Node, New]).
 
 log_node_removed(Node, Old) ->
+%% ERRSCAN
     lager:info("'~s' removed from cluster (previously: '~s')~n", [Node, Old]).
 
 remove_from_cluster(Ring, ExitingNode) ->

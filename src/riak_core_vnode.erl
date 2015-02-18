@@ -20,6 +20,7 @@
 -behaviour(gen_fsm).
 -include("riak_core_vnode.hrl").
 -export([start_link/3,
+%% ERRSCAN
          start_link/4,
          wait_for_init/1,
          send_command/2,
@@ -162,10 +163,14 @@
           inactivity_timeout :: non_neg_integer()
          }).
 
+%% ERRSCAN
 start_link(Mod, Index, Forward) ->
+%% ERRSCAN
     start_link(Mod, Index, 0, Forward).
 
+%% ERRSCAN
 start_link(Mod, Index, InitialInactivityTimeout, Forward) ->
+%% ERRSCAN
     gen_fsm:start_link(?MODULE,
                        [Mod, Index, InitialInactivityTimeout, Forward], []).
 
@@ -230,8 +235,10 @@ do_init(State = #state{index=Index, mod=Mod, forward=Forward}) ->
         _ ->
             case lists:keyfind(pool, 1, Props) of
                 {pool, WorkerModule, PoolSize, WorkerArgs}=PoolConfig ->
+%% ERRSCAN
                     lager:debug("starting worker pool ~p with size of ~p~n",
                                 [WorkerModule, PoolSize]),
+%% ERRSCAN
                     {ok, PoolPid} = riak_core_vnode_worker_pool:start_link(WorkerModule,
                                                                        PoolSize,
                                                                        Index,
@@ -245,6 +252,7 @@ do_init(State = #state{index=Index, mod=Mod, forward=Forward}) ->
             Timeout2 = Timeout + random:uniform(Timeout),
             State2 = State#state{modstate=ModState, inactivity_timeout=Timeout2,
                                  pool_pid=PoolPid, pool_config=PoolConfig},
+%% ERRSCAN
             lager:debug("vnode :: ~p/~p :: ~p~n", [Mod, Index, Forward]),
             State3 = mod_set_forwarding(Forward, State2),
             {ok, State3}
@@ -345,6 +353,7 @@ vnode_command(Sender, Request, State=#state{mod=Mod,
     case catch Mod:handle_command(Request, Sender, ModState) of
         {'EXIT', ExitReason} ->
             reply(Sender, {vnode_error, ExitReason}),
+%% ERRSCAN
             lager:error("~p command failed ~p", [Mod, ExitReason]),
             {stop, ExitReason, State#state{modstate=ModState}};
         continue ->
@@ -376,6 +385,7 @@ vnode_coverage(Sender, Request, KeySpaces, State=#state{index=Index,
         Forwards when is_list(Forwards) ->
             Action = Mod:handle_coverage(Request, KeySpaces, Sender, ModState);
         NextOwner ->
+%% ERRSCAN
             lager:debug("Forwarding coverage ~p -> ~p: ~p~n", [node(), NextOwner, Index]),
             riak_core_vnode_master:coverage(Request, {Index, NextOwner},
                                             KeySpaces, Sender,
@@ -442,6 +452,7 @@ forward_request(_, Request, HOTarget, _ResizeTarget, Sender, State) ->
     vnode_forward(explicit, HOTarget, Sender, Request, State).
 
 vnode_forward(Type, ForwardTo, Sender, Request, State) ->
+%% ERRSCAN
     lager:debug("Forwarding (~p) {~p,~p} -> ~p~n",
                 [Type, State#state.index, node(), ForwardTo]),
     riak_core_vnode_master:command_unreliable(ForwardTo, Request, Sender,
@@ -526,6 +537,7 @@ active(trigger_delete, State=#state{mod=Mod,modstate=ModState,index=Idx}) ->
     case mark_delete_complete(Idx, Mod) of
         {ok, _NewRing} ->
             {ok, NewModState} = Mod:delete(ModState),
+%% ERRSCAN
             lager:debug("~p ~p vnode deleted", [Idx, Mod]);
         _ -> NewModState = ModState
     end,
@@ -536,6 +548,7 @@ active(unregistered, State=#state{mod=Mod, index=Index}) ->
     %% Add exclusion so the ring handler will not try to spin this vnode
     %% up until it receives traffic.
     riak_core_handoff_manager:add_exclusion(Mod, Index),
+%% ERRSCAN
     lager:debug("~p ~p vnode excluded and unregistered.",
                 [Index, Mod]),
     {stop, normal, State#state{handoff_target=none,
@@ -655,9 +668,11 @@ finish_handoff(SeenIdxs, State=#state{mod=Mod,
             %% running on non-existant data.
             maybe_shutdown_pool(State),
             {ok, NewModState} = Mod:delete(ModState),
+%% ERRSCAN
             lager:debug("~p ~p vnode finished handoff and deleted.",
                         [Idx, Mod]),
             riak_core_vnode_manager:unregister_vnode(Idx, Mod),
+%% ERRSCAN
             lager:debug("vnode hn/fwd :: ~p/~p :: ~p -> ~p~n",
                         [State#state.mod, State#state.index, State#state.forward, HN]),
             State2 = mod_set_forwarding(HN, State),
@@ -708,6 +723,7 @@ handle_event({set_forwarding, undefined}, _StateName,
     %% ignore requests to stop forwarding.
     continue(State);
 handle_event({set_forwarding, ForwardTo}, _StateName, State) ->
+%% ERRSCAN
     lager:debug("vnode fwd :: ~p/~p :: ~p -> ~p~n",
                 [State#state.mod, State#state.index, State#state.forward, ForwardTo]),
     State2 = mod_set_forwarding(ForwardTo, State),
@@ -774,6 +790,7 @@ handle_sync_event({handoff_data,BinObj}, _From, StateName,
             {reply, ok, StateName, State#state{modstate=NewModState},
              State#state.inactivity_timeout};
         {reply, {error, Err}, NewModState} ->
+%% ERRSCAN
             lager:error("~p failed to store handoff obj: ~p", [Mod, Err]),
             {reply, {error, Err}, StateName, State#state{modstate=NewModState},
              State#state.inactivity_timeout}
@@ -828,12 +845,15 @@ handle_info({'EXIT', Pid, Reason},
         Reason when Reason == normal; Reason == shutdown ->
             continue(State#state{pool_pid=undefined});
         _ ->
+%% ERRSCAN
             lager:error("~p ~p worker pool crashed ~p\n", [Index, Mod, Reason]),
             {pool, WorkerModule, PoolSize, WorkerArgs}=PoolConfig,
+%% ERRSCAN
             lager:debug("starting worker pool ~p with size "
                         "of ~p for vnode ~p.",
                         [WorkerModule, PoolSize, Index]),
             {ok, NewPoolPid} =
+%% ERRSCAN
                 riak_core_vnode_worker_pool:start_link(WorkerModule,
                                                        PoolSize,
                                                        Index,
@@ -851,6 +871,7 @@ handle_info({'DOWN',_Ref,process,_Pid,normal}, _StateName,
     continue(State);
 handle_info(Info, _StateName,
             State=#state{mod=Mod,modstate={deleted, _},index=Index}) ->
+%% ERRSCAN
     lager:info("~p ~p ignored handle_info ~p - vnode unregistering\n",
                [Index, Mod, Info]),
     continue(State);
@@ -896,6 +917,7 @@ terminate(Reason, _StateName, #state{mod=Mod, modstate=ModState,
                 ok
         end
     catch C:T ->
+%% ERRSCAN
         lager:error("Error while shutting down vnode worker pool ~p:~p trace : ~p",
                     [C, T, erlang:get_stacktrace()])
     after
@@ -925,6 +947,7 @@ maybe_handoff(TargetIdx, TargetNode,
                   Target ->
                       not ExistingHO;
                   _ ->
+%% ERRSCAN
                       lager:info("~s/~b: handoff request to ~p before "
                                  "finishing handoff to ~p",
                                  [Mod, Idx, Target, CurrentTarget]),
@@ -1063,6 +1086,7 @@ mod_set_forwarding(Forward, State=#state{mod=Mod, modstate=ModState}) ->
 
 %% Start the garbage collection server
 test_link(Mod, Index) ->
+%% ERRSCAN
     gen_fsm:start_link(?MODULE, [Mod, Index, 0, node()], []).
 
 %% Get the current state of the fsm for testing inspection
