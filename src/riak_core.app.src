@@ -1,7 +1,7 @@
 %% -*- tab-width: 4;erlang-indent-level: 4;indent-tabs-mode: nil -*-
 %% ex: ts=4 sw=4 et
 {application, riak_core,
-[
+ [
   {description, "Riak Core"},
   {vsn, git},
   {modules, []},
@@ -65,15 +65,6 @@
          %% network and workload. In particular they're likely
          %% too small to be optimal for larger object sizes.
          {dist_send_buf_size, 393216},
-         {dist_recv_buf_size, 786432},
-
-	 %% Exometer defaults
-	 {exometer_defaults,
-	  [
-	   {['_'], histogram, [{options,
-				[{histogram_module, exometer_slot_slide},
-				 {keep_high, 500}]}
-			    ]}
-	  ]}
+         {dist_recv_buf_size, 786432}
         ]}
  ]}.

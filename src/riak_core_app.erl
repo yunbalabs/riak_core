@@ -27,6 +27,9 @@
 %% Application callbacks
 -export([start/2, stop/1]).
 
+-define(HISTOGRAM_OPTS, [{histogram_module, exometer_slot_slide},
+                         {keep_high, 500}]).
+
 %% ===================================================================
 %% Application callbacks
 %% ===================================================================
@@ -67,6 +70,10 @@ start(_StartType, _StartArgs) ->
     riak_core_bucket:append_bucket_defaults(riak_core_bucket_type:defaults()),
 
     %% Spin up the supervisor; prune ring files as necessary
+    %% Get histogram defaults
+    maybe_enable_histograms(app_helper:get_env(riak_core, histograms, enabled)),
+    %% Set them
+
     case riak_core_sup:start_link() of
         {ok, Pid} ->
             riak_core:register(riak_core, [{stat_mod, riak_core_stat},
@@ -113,3 +120,9 @@ start(_StartType, _StartArgs) ->
 stop(_State) ->
     lager:info("Stopped  application riak_core.\n", []),
     ok.
+
+maybe_enable_histograms(S) when S == enabled; S == disabled ->
+    exometer_admin:set_default(['_'], histogram, [{options, [{status, S}] ++ ?HISTOGRAM_OPTS}]);
+maybe_enable_histograms(L) when is_list(L) ->
+    exometer_admin:set_default(['_'], histogram, [{options, [{status, disabled}] ++ ?HISTOGRAM_OPTS}]),
+    [ exometer_admin:set_default(Pattern, histogram, [{options, [{status, enabled}] ++ ?HISTOGRAM_OPTS}]) || Pattern <- L ].
