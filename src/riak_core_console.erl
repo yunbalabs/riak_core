@@ -1358,9 +1358,14 @@ stat_reset(Arg) ->
 	end, find_entries(Arg, enabled)).
 
 change_status(N, St) ->
-    case exometer:setopts(N, [{status, St}]) of
+    case catch exometer:setopts(N, [{status, St}]) of
 	ok ->
 	    St;
+    {'EXIT',
+        {{case_clause,{status,St}}, _}} ->
+        St;
+    {error, St} ->
+        St;
 	Error ->
 	    Error
     end.
