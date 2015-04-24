@@ -139,6 +139,8 @@ resolve(PropsA, PropsB) when is_list(PropsA) andalso
                                 PropsASorted),
     Resolved.
 
+resolve_prop({repl_filter_cluster,X}, {repl_filter_cluster,Y})->
+    X orelse Y;
 resolve_prop({allow_mult, Mult1}, {allow_mult, Mult2}) ->
     Mult1 orelse Mult2; %% assumes allow_mult=true is default
 resolve_prop({basic_quorum, Basic1}, {basic_quorum, Basic2}) ->
