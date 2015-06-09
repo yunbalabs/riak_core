@@ -772,6 +772,14 @@ handle_sync_event({handoff_data,BinObj}, _From, StateName,
             {reply, {error, Err}, StateName, State#state{modstate=NewModState},
              State#state.inactivity_timeout}
     end;
+handle_sync_event(handoff_receive_start, _From, StateName,
+                  State=#state{mod=Mod, modstate=ModState}) ->
+    ModState2 = Mod:handoff_receive_start(ModState),
+    {reply, ok, StateName, State#state{modstate=ModState2}, State#state.inactivity_timeout};
+handle_sync_event(handoff_receive_finish, _From, StateName,
+                  State=#state{mod=Mod, modstate=ModState}) ->
+    ModState2 = Mod:handoff_receive_finish(ModState),
+    {reply, ok, StateName, State#state{modstate=ModState2}, State#state.inactivity_timeout};
 handle_sync_event(core_status, _From, StateName, State=#state{index=Index,
                                                               mod=Mod,
                                                               modstate=ModState,

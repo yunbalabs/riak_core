@@ -119,6 +119,12 @@ process_message(?PT_MSG_INIT, MsgData, State=#state{vnode_mod=VNodeMod,
     Data = [{mod_src_tgt, {VNodeMod, undefined, Partition}},
             {vnode_pid, VNode}],
     riak_core_handoff_manager:set_recv_data(self(), Data),
+    case gen_fsm:sync_send_all_state_event(VNode, handoff_receive_start, 60000) of
+        ok ->
+            ok;
+        E = {error, _} ->
+            exit(E)
+    end,
     State#state{partition=Partition, vnode=VNode};
 
 process_message(?PT_MSG_BATCH, MsgData, State) ->
@@ -141,7 +147,15 @@ process_message(?PT_MSG_OLDSYNC, MsgData, State=#state{sock=Socket,
     VNodeMod = binary_to_atom(VNodeModBin, utf8),
     State#state{vnode_mod=VNodeMod};
 process_message(?PT_MSG_SYNC, _MsgData, State=#state{sock=Socket,
-                                                     tcp_mod=TcpMod}) ->
+                                                     tcp_mod=TcpMod,
+                                                     vnode=VNode}) ->
+    Timeout = app_helper:get_env(riak_core, handoff_timeout, 60000),
+    case gen_fsm:sync_send_all_state_event(VNode, handoff_receive_finish, Timeout) of
+        ok ->
+            ok;
+        E = {error, _} ->
+            exit(E)
+    end,
     TcpMod:send(Socket, <<?PT_MSG_SYNC:8, "sync">>),
     State;
 process_message(?PT_MSG_CONFIGURE, MsgData, State) ->
