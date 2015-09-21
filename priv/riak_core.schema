@@ -71,6 +71,25 @@
   {commented, "$(platform_etc_dir)/cacertfile.pem"}
 ]}.
 
+%% @doc handoff.ip is the network address that Riak binds to for
+%% intra-cluster data handoff.
+{mapping, "handoff.ip", "riak_core.handoff_ip", [
+  {default, "{{handoff_ip}}" },
+  {datatype, string},
+  {validators, ["valid_ipaddr"]},
+  hidden
+]}.
+
+{validator,
+  "valid_ipaddr",
+  "must be a valid IP address",
+  fun(AddrString) -> 
+    case inet_parse:address(AddrString) of
+      {ok, _} -> true;
+      {error, _} -> false
+    end
+  end}.
+
 %% @doc handoff.port is the TCP port that Riak uses for
 %% intra-cluster data handoff.
 {mapping, "handoff.port", "riak_core.handoff_port", [
@@ -92,6 +111,24 @@
 %% @doc if you need a seperate keyfile for handoff
 {mapping, "handoff.ssl.keyfile", "riak_core.handoff_ssl_options.keyfile", [
   {datatype, file},
+  hidden
+]}.
+
+%% @doc Enables/disables outbound handoff transfers for this node. If you
+%% turn this setting off at runtime with riak-admin, it will kill any
+%% outbound handoffs currently running.
+{mapping, "handoff.outbound", "riak_core.disable_outbound_handoff", [
+  {default, on},
+  {datatype, {flag, off, on}},
+  hidden
+]}.
+
+%% @doc Enables/disables inbound handoff transfers for this node. If you
+%% turn this setting off at runtime with riak-admin, it will kill any
+%% inbound handoffs currently running.
+{mapping, "handoff.inbound", "riak_core.disable_inbound_handoff", [
+  {default, on},
+  {datatype, {flag, off, on}},
   hidden
 ]}.
 

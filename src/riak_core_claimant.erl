@@ -1,6 +1,6 @@
 %% -------------------------------------------------------------------
 %%
-%% Copyright (c) 2012 Basho Technologies, Inc.  All Rights Reserved.
+%% Copyright (c) 2012-2015 Basho Technologies, Inc.  All Rights Reserved.
 %%
 %% This file is provided to you under the Apache License,
 %% Version 2.0 (the "License"); you may not use this file
@@ -165,19 +165,19 @@ clear() ->
 ring_changed(Node, Ring) ->
     internal_ring_changed(Node, Ring).
 
-%% @doc {@see riak_core_bucket_type:create/2}
+%% @see riak_core_bucket_type:create/2
 -spec create_bucket_type(riak_core_bucket_type:bucket_type(), [{atom(), any()}]) ->
                                 ok | {error, term()}.
 create_bucket_type(BucketType, Props) ->
     gen_server:call(claimant(), {create_bucket_type, BucketType, Props}, infinity).
 
-%% @doc {@see riak_core_bucket_type:status/1}
+%% @see riak_core_bucket_type:status/1
 -spec bucket_type_status(riak_core_bucket_type:bucket_type()) ->
                                 undefined | created | ready | active.
 bucket_type_status(BucketType) ->
     gen_server:call(claimant(), {bucket_type_status, BucketType}, infinity).
 
-%% @doc {@see riak_core_bucket_type:activate/1}
+%% @see riak_core_bucket_type:activate/1
 -spec activate_bucket_type(riak_core_bucket_type:bucket_type()) ->
                                   ok | {error, undefined | not_ready}.
 activate_bucket_type(BucketType) ->
@@ -206,13 +206,13 @@ get_bucket_type(BucketType, Default, RequireActive) ->
         Props -> maybe_filter_inactive_type(RequireActive, Default, Props)
     end.
 
-%% @doc {@see riak_core_bucket_type:update/2}
+%% @see riak_core_bucket_type:update/2
 -spec update_bucket_type(riak_core_bucket_type:bucket_type(), [{atom(), any()}]) ->
                                 ok | {error, term()}.
 update_bucket_type(BucketType, Props) ->
     gen_server:call(claimant(), {update_bucket_type, BucketType, Props}).
 
-%% @doc {@see riak_core_bucket_type:iterator/0}
+%% @see riak_core_bucket_type:iterator/0
 -spec bucket_type_iterator() -> riak_core_metadata:iterator().
 bucket_type_iterator() ->
     riak_core_metadata:iterator(?BUCKET_TYPE_PREFIX, [{default, undefined},
@@ -367,8 +367,6 @@ generate_plan([], _, State) ->
     {{ok, [], []}, State};
 generate_plan(Changes, Ring, State=#state{seed=Seed}) ->
     case compute_all_next_rings(Changes, Seed, Ring) of
-        legacy ->
-            {{error, legacy}, State};
         {error, invalid_resize_claim} ->
             {{error, invalid_resize_claim}, State};
         {ok, NextRings} ->
@@ -404,8 +402,6 @@ maybe_commit_staged(State) ->
 maybe_commit_staged(Ring, State=#state{changes=Changes, seed=Seed}) ->
     Changes2 = filter_changes(Changes, Ring),
     case compute_next_ring(Changes2, Seed, Ring) of
-        {legacy, _} ->
-            {ignore, legacy};
         {error, invalid_resize_claim} ->
             {ignore, invalid_resize_claim};
         {ok, NextRing} ->
@@ -910,8 +906,6 @@ compute_all_next_rings(Changes, Seed, Ring) ->
 %% @private
 compute_all_next_rings(Changes, Seed, Ring, Acc) ->
     case compute_next_ring(Changes, Seed, Ring) of
-        {legacy, _} ->
-            legacy;
         {error, invalid_resize_claim}=Err ->
             Err;
         {ok, NextRing} ->
@@ -933,14 +927,10 @@ compute_next_ring(Changes, Seed, Ring) ->
     {_, Ring3} = maybe_handle_joining(node(), Ring2),
     {_, Ring4} = do_claimant_quiet(node(), Ring3, Replacing, Seed),
     {Valid, Ring5} = maybe_compute_resize(Ring, Ring4),
-    Members = riak_core_ring:all_members(Ring5),
-    AnyLegacy = riak_core_gossip:any_legacy_gossip(Ring5, Members),
-    case {Valid, AnyLegacy} of
-        {false, _} ->
+    case Valid of
+        false ->
             {error, invalid_resize_claim};
-        {true, true} ->
-            {legacy, Ring};
-        {true, false} ->
+        true ->
             {ok, Ring5}
     end.
 

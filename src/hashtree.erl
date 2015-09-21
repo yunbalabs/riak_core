@@ -106,6 +106,7 @@
          new/3,
          insert/3,
          insert/4,
+         estimate_keys/1,
          delete/2,
          update_tree/1,
          update_snapshot/1,
@@ -125,6 +126,14 @@
          width/1,
          mem_levels/1]).
 -export([compare2/4]).
+
+-ifdef(namespaced_types).
+-type hashtree_dict() :: dict:dict().
+-type hashtree_array() :: array:array().
+-else.
+-type hashtree_dict() :: dict().
+-type hashtree_array() :: array().
+-endif.
 
 -ifdef(TEST).
 -export([local_compare/2]).
@@ -151,6 +160,8 @@
 -define(WIDTH, 1024).
 -define(MEM_LEVELS, 0).
 
+-define(NUM_KEYS_REQUIRED, 1000).
+
 -type tree_id_bin() :: <<_:176>>.
 -type segment_bin() :: <<_:256, _:_*8>>.
 -type bucket_bin()  :: <<_:320>>.
@@ -162,7 +173,8 @@
 
 -type keydiff() :: {missing | remote_missing | different, binary()}.
 
--type remote_fun() :: fun((get_bucket | key_hashes | init | final,
+-type remote_fun() :: fun((get_bucket | key_hashes | start_exchange_level |
+                           start_exchange_segments | init | final,
                            {integer(), integer()} | integer() | term()) -> any()).
 
 -type acc_fun(Acc) :: fun(([keydiff()], Acc) -> Acc).
@@ -175,13 +187,13 @@
                 segments       :: pos_integer(),
                 width          :: pos_integer(),
                 mem_levels     :: integer(),
-                tree           :: dict(),
+                tree           :: hashtree_dict(),
                 ref            :: term(),
                 path           :: string(),
                 itr            :: term(),
                 write_buffer   :: [{put, binary(), binary()} | {delete, binary()}],
                 write_buffer_count :: integer(),
-                dirty_segments :: array()
+                dirty_segments :: hashtree_array()
                }).
 
 -record(itr_state, {itr                :: term(),
@@ -427,6 +439,32 @@ read_meta(Key, State) when is_binary(Key) ->
         _ ->
             undefined
     end.
+
+%% @doc
+%% Estimate number of keys stored in the AAE tree. This is determined
+%% by sampling segments to to calculate an estimated keys-per-segment
+%% value, which is then multiplied by the number of segments. Segments
+%% are sampled until either 1% of segments have been visited or 1000
+%% keys have been observed.
+%%
+%% Note: this function must be called on a tree with a valid iterator,
+%%       such as the snapshotted tree returned from update_snapshot/1
+%%       or a recently updated tree returned from update_tree/1 (which
+%%       internally creates a snapshot). Using update_tree/1 is the best
+%%       choice since that ensures segments are updated giving a better
+%%       estimate.
+-spec estimate_keys(hashtree()) -> {ok, integer()}.
+estimate_keys(State) ->
+    estimate_keys(State, 0, 0, ?NUM_KEYS_REQUIRED).
+
+estimate_keys(#state{segments=Segments}, CurrentSegment, Keys, MaxKeys)
+  when (CurrentSegment * 100) >= Segments;
+       Keys >= MaxKeys ->
+    {ok, (Keys * Segments) div CurrentSegment};
+
+estimate_keys(State, CurrentSegment, Keys, MaxKeys) ->
+    [{_, KeyHashes2}] = key_hashes(State, CurrentSegment),
+    estimate_keys(State, CurrentSegment + 1, Keys + length(KeyHashes2), MaxKeys).
 
 -spec key_hashes(hashtree(), integer()) -> [{integer(), orddict()}].
 key_hashes(State, Segment) ->
@@ -926,17 +964,17 @@ orddict_delta(D1, [], Acc) ->
 %%%===================================================================
 -define(W, 27).
 
--spec bitarray_new(integer()) -> array().
+-spec bitarray_new(integer()) -> hashtree_array().
 bitarray_new(N) -> array:new((N-1) div ?W + 1, {default, 0}).
 
--spec bitarray_set(integer(), array()) -> array().
+-spec bitarray_set(integer(), hashtree_array()) -> hashtree_array().
 bitarray_set(I, A) ->
     AI = I div ?W,
     V = array:get(AI, A),
     V1 = V bor (1 bsl (I rem ?W)),
     array:set(AI, V1, A).
 
--spec bitarray_to_list(array()) -> [integer()].
+-spec bitarray_to_list(hashtree_array()) -> [integer()].
 bitarray_to_list(A) ->
     lists:reverse(
       array:sparse_foldl(fun(I, V, Acc) ->
@@ -1296,5 +1334,25 @@ prop_correct() ->
                         destroy(B0),
                         true
                     end)).
+
+est_prop() ->
+    %% It's hard to estimate under 10000 keys
+    ?FORALL(N, choose(10000, 500000),
+            begin
+                {ok, EstKeys} = estimate_keys(update_tree(insert_many(N, new()))),
+                Diff = abs(N - EstKeys),
+                MaxDiff = N div 5,
+                ?debugVal(Diff), ?debugVal(EstKeys),?debugVal(MaxDiff),
+                ?assertEqual(true, MaxDiff > Diff),
+                true
+            end).
+
+est_test_() ->
+    {spawn,
+     {timeout, 240,
+      fun() ->
+              ?assert(eqc:quickcheck(eqc:testing_time(10, est_prop())))
+      end
+     }}.
 
 -endif.
